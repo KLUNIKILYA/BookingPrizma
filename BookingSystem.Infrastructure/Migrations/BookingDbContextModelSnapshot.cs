@@ -22,13 +22,10 @@ namespace BookingSystem.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("BookingSystem.Domain.Entities.Booking", b =>
+            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingResExtra", b =>
                 {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
+                    b.Property<int>("ReservationId")
                         .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<int?>("ClientVisitorId")
                         .HasColumnType("int");
@@ -36,106 +33,40 @@ namespace BookingSystem.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<DateTime>("Date")
-                        .HasColumnType("datetime2");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
                     b.Property<int>("Label")
                         .HasColumnType("int");
 
-                    b.Property<string>("Note")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<int>("ResourceId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("TimeFrom")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("TimeTo")
-                        .HasColumnType("datetime2");
-
                     b.Property<string>("Title")
-                        .IsRequired()
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<int?>("WaiterVisitorId")
+                    b.Property<int?>("WaiterLoginId")
                         .HasColumnType("int");
 
-                    b.HasKey("Id");
+                    b.HasKey("ReservationId");
 
-                    b.HasIndex("TimeFrom");
-
-                    b.HasIndex("ResourceId", "TimeFrom");
-
-                    b.ToTable("Booking_Booking", (string)null);
+                    b.ToTable("Booking_ResExtra", (string)null);
                 });
 
-            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingResource", b =>
+            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingResServiceItem", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Color")
-                        .HasMaxLength(16)
-                        .HasColumnType("nvarchar(16)");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("VisitorId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("VisitorId");
-
-                    b.ToTable("Booking_Resource", (string)null);
-                });
-
-            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingServiceItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("BookingId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("BreakSnapshot")
-                        .HasColumnType("int");
-
-                    b.Property<int>("DurationSnapshot")
-                        .HasColumnType("int");
 
                     b.Property<bool>("IsDone")
                         .HasColumnType("bit");
 
                     b.Property<decimal>("PriceSnapshot")
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ReservationId")
+                        .HasColumnType("int");
 
                     b.Property<int>("ServiceId")
                         .HasColumnType("int");
@@ -150,41 +81,9 @@ namespace BookingSystem.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BookingId");
+                    b.HasIndex("ReservationId");
 
-                    b.ToTable("Booking_BookingService", (string)null);
-                });
-
-            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingServiceSetting", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("BreakMinutes")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ColorOverride")
-                        .HasMaxLength(16)
-                        .HasColumnType("nvarchar(16)");
-
-                    b.Property<int>("DurationMinutes")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsBookable")
-                        .HasColumnType("bit");
-
-                    b.Property<int>("ServiceId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ServiceId")
-                        .IsUnique();
-
-                    b.ToTable("Booking_ServiceSetting", (string)null);
+                    b.ToTable("Booking_ResService", (string)null);
                 });
 
             modelBuilder.Entity("BookingSystem.Infrastructure.Legacy.CashboxVisitor", b =>
@@ -221,7 +120,11 @@ namespace BookingSystem.Infrastructure.Migrations
                     b.ToTable("CashboxVisitor", null, t =>
                         {
                             t.ExcludeFromMigrations();
+
+                            t.HasTrigger("trg_CashboxVisitor");
                         });
+
+                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
                 });
 
             modelBuilder.Entity("BookingSystem.Infrastructure.Legacy.SingleService", b =>
@@ -286,36 +189,110 @@ namespace BookingSystem.Infrastructure.Migrations
                         });
                 });
 
-            modelBuilder.Entity("BookingSystem.Domain.Entities.Booking", b =>
+            modelBuilder.Entity("BookingSystem.Infrastructure.Legacy.TLogin", b =>
                 {
-                    b.HasOne("BookingSystem.Domain.Entities.BookingResource", "Resource")
-                        .WithMany("Bookings")
-                        .HasForeignKey("ResourceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                    b.Property<int>("Fid")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("FID");
 
-                    b.Navigation("Resource");
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Fid"));
+
+                    b.Property<bool>("Factive")
+                        .HasColumnType("bit")
+                        .HasColumnName("FACTIVE");
+
+                    b.Property<string>("Flogin")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("FLOGIN");
+
+                    b.Property<string>("Fuser")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("FUSER");
+
+                    b.HasKey("Fid");
+
+                    b.ToTable("TLogins", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
                 });
 
-            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingServiceItem", b =>
+            modelBuilder.Entity("BookingSystem.Infrastructure.Legacy.Zone", b =>
                 {
-                    b.HasOne("BookingSystem.Domain.Entities.Booking", "Booking")
+                    b.Property<int>("IdZone")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdZone"));
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("NameZone")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ShortNameZone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("IdZone");
+
+                    b.ToTable("Zones", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
+
+            modelBuilder.Entity("BookingSystem.Infrastructure.Legacy.ZoneReservation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("ID");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DateFrom")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("DateTo")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Info")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("OrderId")
+                        .HasColumnType("int")
+                        .HasColumnName("OrderID");
+
+                    b.Property<int>("ZoneId")
+                        .HasColumnType("int")
+                        .HasColumnName("ZoneID");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ZoneReservation", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
+
+            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingResServiceItem", b =>
+                {
+                    b.HasOne("BookingSystem.Domain.Entities.BookingResExtra", "Extra")
                         .WithMany("Services")
-                        .HasForeignKey("BookingId")
+                        .HasForeignKey("ReservationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Booking");
+                    b.Navigation("Extra");
                 });
 
-            modelBuilder.Entity("BookingSystem.Domain.Entities.Booking", b =>
+            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingResExtra", b =>
                 {
                     b.Navigation("Services");
-                });
-
-            modelBuilder.Entity("BookingSystem.Domain.Entities.BookingResource", b =>
-                {
-                    b.Navigation("Bookings");
                 });
 #pragma warning restore 612, 618
         }

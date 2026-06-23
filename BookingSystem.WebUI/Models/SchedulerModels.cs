@@ -13,6 +13,7 @@ public class SchedulerEvent
     public string CategoryColor { get; set; } = "#E3E8EF";
 
     // Поля для tooltip / отображения
+    public string RoomName { get; set; } = string.Empty;
     public string LabelName { get; set; } = string.Empty;
     public string? ClientName { get; set; }
     public string? WaiterName { get; set; }

@@ -5,15 +5,20 @@
     <div class="bk-modal-backdrop" @onclick="Cancel">
         <div class="bk-modal" @onclick:stopPropagation="true">
             <div class="bk-modal__head">
-                <div class="bk-modal__title">@(_editingId.HasValue ? "Редактирование записи" : "Новая запись")</div>
+                <div class="bk-modal__title">@HeadTitle</div>
                 <button class="bk-modal__close" @onclick="Cancel">✕</button>
             </div>
 
+            @if (_readOnly)
+            {
+                <div class="bk-error" style="color:#23306b;">Бронь кассовой системы — только просмотр.</div>
+            }
             @if (_error is not null)
             {
                 <div class="bk-error">@_error</div>
             }
 
+            <fieldset disabled="@_readOnly" style="border:none; padding:0; margin:0; min-width:0;">
             <div class="bk-modal__body">
                 <!-- ЛЕВО: данные брони + клиент -->
                 <div>
@@ -67,11 +72,11 @@
                     }
 
                     <div class="bk-form-row">
-                        <label>Комната / столик</label>
+                        <label>Комната</label>
                         <select @bind="_resourceId">
                             @foreach (var r in Resources)
                             {
-                                <option value="@r.Id">@Icon(r.Kind) @r.DisplayName</option>
+                                <option value="@r.Id">@r.DisplayName</option>
                             }
                         </select>
                     </div>
@@ -90,11 +95,11 @@
                     <div class="bk-row-2">
                         <div class="bk-form-row">
                             <label>Дата начала</label>
-                            <input type="date" @bind="_date" @bind:after="OnStartChanged" />
+                            <input type="date" @bind="_date" />
                         </div>
                         <div class="bk-form-row">
                             <label>Время начала</label>
-                            <select @bind="_time" @bind:after="OnStartChanged">
+                            <select @bind="_time">
                                 @foreach (var t in TimeOptions(_time))
                                 {
                                     <option value="@t">@t</option>
@@ -135,7 +140,7 @@
                     </div>
                 </div>
 
-                <!-- ПРАВО: услуги -->
+                <!-- ПРАВО: услуги (позиции с ценой, без времени) -->
                 <div>
                     <div class="bk-form-row">
                         <label>Группа услуг</label>
@@ -149,31 +154,29 @@
                     </div>
 
                     <p class="bk-section-title">Список доступных услуг</p>
-                    <div class="bk-grid">
+                    <div class="bk-grid bk-grid--svc">
                         <div class="bk-grid__head">
-                            <div>Название</div><div class="bk-grid__num">Цена</div><div class="bk-grid__num">Длит.</div><div class="bk-grid__num">Пер.</div>
+                            <div>Название</div><div class="bk-grid__num">Цена</div>
                         </div>
                         <div class="bk-grid__scroll">
                             @if (_available.Count == 0)
                             {
-                                <div class="bk-grid__empty">Нет бронируемых услуг в группе</div>
+                                <div class="bk-grid__empty">Нет услуг в группе</div>
                             }
                             @foreach (var s in _available)
                             {
                                 <div class="bk-grid__row" @onclick="() => AddService(s)" title="Добавить в запись">
                                     <div>@s.Name</div>
                                     <div class="bk-grid__num">@s.Price.ToString("0.##")</div>
-                                    <div class="bk-grid__num">@s.DurationMinutes</div>
-                                    <div class="bk-grid__num">@s.BreakMinutes</div>
                                 </div>
                             }
                         </div>
                     </div>
 
                     <p class="bk-section-title" style="margin-top:14px;">Список выбранных услуг</p>
-                    <div class="bk-grid bk-grid--sel">
+                    <div class="bk-grid bk-grid--sel2">
                         <div class="bk-grid__head">
-                            <div>Название</div><div class="bk-grid__num">Цена</div><div class="bk-grid__num">Длит.</div><div class="bk-grid__num">Пер.</div><div>Готово</div><div></div>
+                            <div>Название</div><div class="bk-grid__num">Цена</div><div>Готово</div><div></div>
                         </div>
                         <div class="bk-grid__scroll">
                             @if (_selected.Count == 0)
@@ -187,8 +190,6 @@
                                 <div class="bk-grid__row">
                                     <div>@line.Name</div>
                                     <div class="bk-grid__num">@line.Price.ToString("0.##")</div>
-                                    <div class="bk-grid__num">@line.DurationMinutes</div>
-                                    <div class="bk-grid__num">@line.BreakMinutes</div>
                                     <div><input type="checkbox" @bind="line.IsDone" /></div>
                                     <div><button class="bk-icon-btn" @onclick="() => RemoveAt(idx)" title="Убрать">🗑</button></div>
                                 </div>
@@ -198,19 +199,26 @@
 
                     <div class="bk-sums">
                         <span>Длительность: <b>@DurationText</b></span>
-                        <span>Окончание: <b>@EndDateTime.ToString("dd.MM HH:mm")</b></span>
                         <span>Сумма: <b>@TotalPrice.ToString("0.##")</b></span>
                     </div>
                 </div>
             </div>
+            </fieldset>
 
             <div class="bk-modal__foot">
-                @if (_editingId.HasValue)
+                @if (_readOnly)
                 {
-                    <button class="bk-btn bk-btn--danger" style="margin-right:auto;" @onclick="DeleteAsync" disabled="@_busy">Удалить</button>
+                    <button class="bk-btn bk-btn--ghost" @onclick="Cancel">Закрыть</button>
                 }
-                <button class="bk-btn bk-btn--ghost" @onclick="Cancel" disabled="@_busy">Отмена</button>
-                <button class="bk-btn" @onclick="SaveAsync" disabled="@_busy">Сохранить</button>
+                else
+                {
+                    @if (_editingId.HasValue)
+                    {
+                        <button class="bk-btn bk-btn--danger" style="margin-right:auto;" @onclick="DeleteAsync" disabled="@_busy">Удалить</button>
+                    }
+                    <button class="bk-btn bk-btn--ghost" @onclick="Cancel" disabled="@_busy">Отмена</button>
+                    <button class="bk-btn" @onclick="SaveAsync" disabled="@_busy">Сохранить</button>
+                }
             </div>
         </div>
     </div>
@@ -226,6 +234,7 @@
 
     private bool _visible;
     private bool _busy;
+    private bool _readOnly;   // true для кассовых броней (OrderID != null)
     private string? _error;
     private int? _editingId;
 
@@ -258,12 +267,13 @@
     private List<ServiceDto> _available = new();
     private readonly List<SelectedLine> _selected = new();
 
-    private int TotalMinutes => _selected.Sum(s => s.DurationMinutes + s.BreakMinutes);
+    private string HeadTitle => _readOnly ? "Просмотр брони" : (_editingId.HasValue ? "Редактирование записи" : "Новая запись");
+
     private decimal TotalPrice => _selected.Sum(s => s.Price);
     private DateTime StartDateTime => _date.Date + ParseTime(_time, 10);
     private DateTime EndDateTime => _endDate.Date + ParseTime(_endTime, 11);
 
-    // 24-часовая сетка времени для выпадающих списков (нативный input type=time зависит от локали браузера и показывает AM/PM).
+    // 24-часовая сетка времени (нативный input type=time зависит от локали браузера и показывает AM/PM).
     private static readonly string[] TimeGrid = BuildTimeGrid();
 
     private static string[] BuildTimeGrid()
@@ -295,11 +305,9 @@
         }
     }
 
-    private static string Icon(ResourceKind kind) => kind == ResourceKind.Table ? "🍽" : "🚪";
-
     public async Task OpenForCreateAsync(int resourceId, DateTime start)
     {
-        InitCommon(resourceId, start, start.AddMinutes(30));
+        InitCommon(resourceId, start, start.AddHours(1));
         await ReloadAvailableAsync();
         StateHasChanged();
     }
@@ -315,6 +323,7 @@
     private void InitCommon(int resourceId, DateTime start, DateTime end)
     {
         _editingId = null;
+        _readOnly = false;
         _title = "";
         _resourceId = resourceId;
         _waiterId = 0;
@@ -335,6 +344,7 @@
     public async Task OpenForEditAsync(BookingEventDto dto)
     {
         _editingId = dto.Id;
+        _readOnly = !dto.CanEdit;   // кассовые брони — только просмотр
         _title = dto.Title;
         _resourceId = dto.ResourceId;
         _waiterId = dto.WaiterVisitorId ?? 0;
@@ -354,24 +364,12 @@
         foreach (var s in dto.Services)
             _selected.Add(new SelectedLine
             {
-                ServiceId = s.ServiceId, Name = s.ServiceName, Price = s.Price,
-                DurationMinutes = s.DurationMinutes, BreakMinutes = s.BreakMinutes, IsDone = s.IsDone
+                ServiceId = s.ServiceId, Name = s.ServiceName, Price = s.Price, IsDone = s.IsDone
             });
         _error = null;
         _visible = true;
         await ReloadAvailableAsync();
         StateHasChanged();
-    }
-
-    private void OnStartChanged() => RecomputeEnd();
-
-    /// <summary>Подгоняет окончание под услуги, но только для брони в пределах одного дня (мульти-день не трогаем).</summary>
-    private void RecomputeEnd()
-    {
-        if (EndDateTime.Date > StartDateTime.Date) return; // мульти-день — оставляем как есть
-        var end = StartDateTime.AddMinutes(TotalMinutes > 0 ? TotalMinutes : 60);
-        _endDate = end.Date;
-        _endTime = end.ToString("HH:mm");
     }
 
     private async Task ReloadAvailableAsync()
@@ -382,18 +380,14 @@
 
     private void AddService(ServiceDto s)
     {
-        _selected.Add(new SelectedLine
-        {
-            ServiceId = s.Id, Name = s.Name, Price = s.Price,
-            DurationMinutes = s.DurationMinutes, BreakMinutes = s.BreakMinutes, IsDone = false
-        });
-        RecomputeEnd();
+        if (_readOnly) return;
+        _selected.Add(new SelectedLine { ServiceId = s.Id, Name = s.Name, Price = s.Price, IsDone = false });
     }
 
     private void RemoveAt(int idx)
     {
+        if (_readOnly) return;
         if (idx >= 0 && idx < _selected.Count) _selected.RemoveAt(idx);
-        RecomputeEnd();
     }
 
     private async Task OnClientInput(ChangeEventArgs e)
@@ -419,7 +413,7 @@
         _clientId = c.Id;
         _clientName = c.FullName;
         _clientQuery = c.FullName;
-        _title = c.FullName;              // имя брони = имя клиента
+        _title = c.FullName;
         _showSuggest = false;
         _newClientMode = false;
     }
@@ -430,7 +424,7 @@
         if (_newClientMode)
         {
             _showSuggest = false;
-            _ncSurname = _clientQuery.Trim();  // префилл фамилии из введённого
+            _ncSurname = _clientQuery.Trim();
             _ncName = "";
             _ncPhone = "";
         }
@@ -460,7 +454,7 @@
 
     private async Task SaveAsync()
     {
-        if (_resourceId <= 0) { _error = "Выберите комнату/столик."; return; }
+        if (_resourceId <= 0) { _error = "Выберите комнату."; return; }
         if (_clientId == null && string.IsNullOrWhiteSpace(_title)) { _error = "Выберите клиента или создайте нового."; return; }
         if (EndDateTime <= StartDateTime) { _error = "Окончание должно быть позже начала."; return; }
 
@@ -515,8 +509,6 @@
         public int ServiceId { get; set; }
         public string Name { get; set; } = "";
         public decimal Price { get; set; }
-        public int DurationMinutes { get; set; }
-        public int BreakMinutes { get; set; }
         public bool IsDone { get; set; }
     }
 }

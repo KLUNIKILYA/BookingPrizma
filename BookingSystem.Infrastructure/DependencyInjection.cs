@@ -11,7 +11,10 @@ public static class DependencyInjection
     public static IServiceCollection AddBookingInfrastructure(
         this IServiceCollection services, string connectionString)
     {
-        services.AddDbContext<BookingDbContext>(options => options.UseSqlServer(connectionString));
+        // CompatibilityLevel(120): легаси SQL Server PPS_Prizma не поддерживает OPENJSON,
+        // который EF Core 8 использует для Contains() — иначе ошибка «синтаксис около '$'».
+        services.AddDbContext<BookingDbContext>(options =>
+            options.UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(120)));
 
         services.AddScoped<ICatalogService, CatalogService>();
         services.AddScoped<IResourceService, ResourceService>();

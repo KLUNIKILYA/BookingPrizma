@@ -1,15 +1,16 @@
 @page "/"
 @inject BookingApi Api
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="bk-toolbar">
     <div class="bk-field">
-        <label>Комната / столик</label>
+        <label>Комната</label>
         <select @bind="_resourceFilter" @bind:after="OnFilterChanged">
             <option value="0">(Все)</option>
             @foreach (var r in _allResources)
             {
-                <option value="@r.Id">@Icon(r.Kind) @r.DisplayName</option>
+                <option value="@r.Id">@r.DisplayName</option>
             }
         </select>
     </div>
@@ -68,6 +69,10 @@
                     {
                         <div class="bk-tooltip">
                             <div class="bk-tooltip__title">@ev.Subject</div>
+                            @if (!string.IsNullOrWhiteSpace(ev.RoomName))
+                            {
+                                <div class="bk-tooltip__row">Комната: @ev.RoomName</div>
+                            }
                             <div class="bk-tooltip__row">@ev.StartTime.ToString("dd.MM HH:mm")–@ev.EndTime.ToString("dd.MM HH:mm")</div>
                             @if (!string.IsNullOrWhiteSpace(ev.ClientName))
                             {
@@ -114,6 +119,8 @@
     private List<ClientDto> _waiters = new();
 
     private List<SchedulerResource> _allResourceModels = new();
+    private Dictionary<int, string> _roomNames = new();   // id комнаты → название (для подсказки)
+    private DotNetObjectReference<Scheduler>? _selfRef;
     private List<SchedulerEvent> Events { get; set; } = new();
     private Dictionary<int, BookingEventDto> _dtoById = new();
 
@@ -143,19 +150,22 @@
             ? _allResourceModels.Where(r => r.Id == _resourceFilter).ToList()
             : _allResourceModels;
 
-    private static string Icon(ResourceKind kind) => kind == ResourceKind.Table ? "🍽" : "🚪";
+    // Палитра для колонок-комнат (в Zones цвета нет).
+    private static readonly string[] RoomPalette =
+        { "#4F86C6", "#6A59F0", "#C77DBB", "#6FB07F", "#E0A458", "#5FB0C8", "#E08D8D", "#8E7CC3" };
 
     protected override async Task OnInitializedAsync()
     {
         _allResources = await Api.GetResourcesAsync();
         _groups = await Api.GetGroupsAsync();
         _waiters = await Api.GetWaitersAsync();
+        _roomNames = _allResources.ToDictionary(r => r.Id, r => r.DisplayName);
         _allResourceModels = _allResources
-            .Select(r => new SchedulerResource
+            .Select((r, i) => new SchedulerResource
             {
                 Id = r.Id,
-                DisplayName = $"{Icon(r.Kind)} {r.DisplayName}",
-                Color = r.Color ?? "#4f6df5"
+                DisplayName = r.DisplayName,
+                Color = r.Color ?? RoomPalette[i % RoomPalette.Length]
             })
             .ToList();
         RecomputeVisibleResources();
@@ -196,13 +206,14 @@
         await LoadAsync(SelectedDate);
     }
 
-    private static SchedulerEvent ToEvent(BookingEventDto d) => new()
+    private SchedulerEvent ToEvent(BookingEventDto d) => new()
     {
         Id = d.Id,
         Subject = string.IsNullOrWhiteSpace(d.Title) ? "(без имени)" : d.Title,
         StartTime = d.TimeFrom,
         EndTime = d.TimeTo,
         ResourceId = d.ResourceId,
+        RoomName = _roomNames.TryGetValue(d.ResourceId, out var rn) ? rn : "",
         CategoryColor = string.IsNullOrWhiteSpace(d.Color) ? "#E3E8EF" : d.Color,
         LabelName = d.LabelName,
         ClientName = d.ClientName,
@@ -216,11 +227,26 @@
 
     private void OnEventRendered(EventRenderedArgs<SchedulerEvent> args)
     {
-        var color = args.Data?.CategoryColor ?? "#E3E8EF";
+        var ev = args.Data;
+        var color = ev?.CategoryColor ?? "#E3E8EF";
         args.Attributes = new Dictionary<string, object>
         {
-            { "style", $"background-color:{color};border:1px solid rgba(0,0,0,.14);color:#1f2733;" }
+            { "style", $"background-color:{color};border:1px solid rgba(0,0,0,.14);color:#1f2733;" },
+            // Нативный title — гарантированная подсказка при наведении (на случай, если тултип Syncfusion не сработал).
+            { "title", ev is null ? "" : BuildTitle(ev) }
         };
+    }
+
+    private static string BuildTitle(SchedulerEvent ev)
+    {
+        var lines = new List<string> { ev.Subject };
+        if (!string.IsNullOrWhiteSpace(ev.RoomName)) lines.Add($"Комната: {ev.RoomName}");
+        lines.Add($"{ev.StartTime:dd.MM HH:mm}–{ev.EndTime:dd.MM HH:mm}");
+        if (!string.IsNullOrWhiteSpace(ev.ClientName)) lines.Add($"Клиент: {ev.ClientName}");
+        if (!string.IsNullOrWhiteSpace(ev.WaiterName)) lines.Add($"Официант: {ev.WaiterName}");
+        if (!string.IsNullOrWhiteSpace(ev.ServicesSummary)) lines.Add(ev.ServicesSummary);
+        if (ev.TotalPrice > 0) lines.Add($"Сумма: {ev.TotalPrice:0.##}");
+        return string.Join("\n", lines);
     }
 
     private async Task OnNavigating(NavigatingEventArgs args)
@@ -261,6 +287,8 @@
             var changed = args.ChangedRecords?.FirstOrDefault();
             if (changed is not null && _dtoById.TryGetValue(changed.Id, out var dto))
             {
+                if (!dto.CanEdit) { await LoadAsync(SelectedDate); return; } // кассовую бронь не двигаем
+
                 var req = new BookingUpsertRequest
                 {
                     ResourceId = changed.ResourceId > 0 ? changed.ResourceId : dto.ResourceId,
@@ -296,5 +324,26 @@
         await _editor!.OpenForCreateRangeAsync(resourceId, start, end);
     }
 
-    public void Dispose() { }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("bkSetupDateClick", _selfRef);
+        }
+    }
+
+    /// <summary>Клик по дате в шапке планировщика — открыть этот день.</summary>
+    [JSInvokable]
+    public async Task OpenDay(double epochMs)
+    {
+        var date = DateTimeOffset.FromUnixTimeMilliseconds((long)epochMs).LocalDateTime.Date;
+        SelectedDate = date;
+        _selStart = _selEnd = date;
+        _periodDays = 1;
+        await LoadAsync(date);
+        StateHasChanged();
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
 }

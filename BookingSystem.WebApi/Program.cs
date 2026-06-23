@@ -1,12 +1,11 @@
 using BookingSystem.Infrastructure;
+using BookingSystem.Infrastructure.Configuration;
 using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Строка подключения: из конфигурации, иначе локальная PPS_3_1 (Windows-аутентификация).
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-if (string.IsNullOrWhiteSpace(connectionString))
-    connectionString = BookingDbContextFactory.LocalConnectionString;
+// Строка подключения к PPS_Prizma: из SQL_HOST/PORT/INSTANCE/DATABASE/USER/PASSWORD (env / appsettings).
+var connectionString = SqlServerConnectionFactory.Build(builder.Configuration);
 
 var sqlInfo = new SqlConnectionStringBuilder(connectionString);
 Console.WriteLine($"[BookingSystem] SQL DataSource={sqlInfo.DataSource}, Database={sqlInfo.InitialCatalog}");

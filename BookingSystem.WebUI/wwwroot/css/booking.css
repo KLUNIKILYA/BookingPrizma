@@ -122,6 +122,8 @@ html, body {
 .bk-grid { border: 1px solid var(--bk-border); border-radius: 10px; overflow: hidden; }
 .bk-grid__head, .bk-grid__row { display: grid; grid-template-columns: 1fr 70px 56px 56px; align-items: center; }
 .bk-grid--sel .bk-grid__head, .bk-grid--sel .bk-grid__row { grid-template-columns: 1fr 60px 48px 48px 44px 34px; }
+.bk-grid--svc .bk-grid__head, .bk-grid--svc .bk-grid__row { grid-template-columns: 1fr 80px; }
+.bk-grid--sel2 .bk-grid__head, .bk-grid--sel2 .bk-grid__row { grid-template-columns: 1fr 80px 56px 34px; }
 .bk-grid__head { background: #f5f7fc; font-size: 12px; color: var(--bk-muted); font-weight: 700; }
 .bk-grid__head > div, .bk-grid__row > div { padding: 7px 10px; font-size: 13px; }
 .bk-grid__row { border-top: 1px solid var(--bk-border); cursor: pointer; }

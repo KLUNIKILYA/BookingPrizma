@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace BookingSystem.Infrastructure.Services;
 
 /// <summary>
-/// Каталог услуг: группы из легаси SingleServiceGroup, услуги — джойн SingleService
-/// с Booking_ServiceSetting (длительность/перерыв/цвет). Бронируемы только услуги с настройкой IsBookable.
+/// Каталог услуг из dbo.SingleService / dbo.SingleServiceGroup (PPS_Prizma).
+/// Услуги — позиции с ценой, без времени.
 /// </summary>
 public class CatalogService : ICatalogService
 {
@@ -25,25 +25,18 @@ public class CatalogService : ICatalogService
 
     public async Task<List<ServiceDto>> GetServicesAsync(int? groupId, CancellationToken ct = default)
     {
-        var q = from s in _db.SingleServices.AsNoTracking().Where(s => s.Active)
-                join st in _db.ServiceSettings.AsNoTracking().Where(st => st.IsBookable)
-                    on s.Id equals st.ServiceId
-                select new { s, st };
-
+        var q = _db.SingleServices.AsNoTracking().Where(s => s.Active);
         if (groupId.HasValue)
-            q = q.Where(x => x.s.SingleServiceGroupId == groupId.Value);
+            q = q.Where(s => s.SingleServiceGroupId == groupId.Value);
 
         return await q
-            .OrderBy(x => x.s.Name)
-            .Select(x => new ServiceDto
+            .OrderBy(s => s.Name)
+            .Select(s => new ServiceDto
             {
-                Id = x.s.Id,
-                Name = x.s.Name,
-                Price = x.s.Price,
-                GroupId = x.s.SingleServiceGroupId,
-                DurationMinutes = x.st.DurationMinutes,
-                BreakMinutes = x.st.BreakMinutes,
-                Color = x.st.ColorOverride
+                Id = s.Id,
+                Name = s.Name,
+                Price = s.Price,
+                GroupId = s.SingleServiceGroupId
             })
             .ToListAsync(ct);
     }

@@ -5,82 +5,82 @@ using Microsoft.EntityFrameworkCore;
 namespace BookingSystem.Infrastructure;
 
 /// <summary>
-/// Контекст системы бронирования. Владеет собственными таблицами Booking_*,
-/// а легаси-таблицы (SingleService, SingleServiceGroup, CashboxVisitor) подключает
-/// в режиме read-only и исключает из миграций (ExcludeFromMigrations), чтобы
-/// миграции никогда не трогали существующую схему и таблицы аренды.
+/// Контекст бронирования поверх боевой БД PPS_Prizma.
+/// Брони хранятся в реальной таблице ZoneReservation (комнаты — Zones, сотрудники — TLogins),
+/// а доп-поля (официант/метка/клиент/услуги) — в собственных таблицах Booking_ResExtra/Booking_ResService.
+/// Все легаси-таблицы read-only и исключены из миграций.
 /// </summary>
 public class BookingDbContext : DbContext
 {
-    public BookingDbContext(DbContextOptions<BookingDbContext> options) : base(options)
-    {
-    }
+    public BookingDbContext(DbContextOptions<BookingDbContext> options) : base(options) { }
 
-    // ===== Собственные таблицы =====
-    public DbSet<Booking> Bookings => Set<Booking>();
-    public DbSet<BookingServiceItem> BookingServiceItems => Set<BookingServiceItem>();
-    public DbSet<BookingResource> Resources => Set<BookingResource>();
-    public DbSet<BookingServiceSetting> ServiceSettings => Set<BookingServiceSetting>();
+    // ===== Собственные таблицы (companion) =====
+    public DbSet<BookingResExtra> ResExtras => Set<BookingResExtra>();
+    public DbSet<BookingResServiceItem> ResServices => Set<BookingResServiceItem>();
 
-    // ===== Read-only легаси =====
+    // ===== Боевые таблицы (read-only, кроме ZoneReservation, куда пишем) =====
+    public DbSet<Zone> Zones => Set<Zone>();
+    public DbSet<ZoneReservation> ZoneReservations => Set<ZoneReservation>();
+    public DbSet<TLogin> TLogins => Set<TLogin>();
     public DbSet<SingleService> SingleServices => Set<SingleService>();
     public DbSet<SingleServiceGroup> SingleServiceGroups => Set<SingleServiceGroup>();
     public DbSet<CashboxVisitor> CashboxVisitors => Set<CashboxVisitor>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
-        // ---------- Booking_Resource ----------
-        b.Entity<BookingResource>(e =>
+        // ---------- Booking_ResExtra (1:1 с бронью) ----------
+        b.Entity<BookingResExtra>(e =>
         {
-            e.ToTable("Booking_Resource");
-            e.HasKey(x => x.Id);
-            e.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
-            e.Property(x => x.Color).HasMaxLength(16);
-            e.HasIndex(x => x.VisitorId);
-        });
-
-        // ---------- Booking_ServiceSetting ----------
-        b.Entity<BookingServiceSetting>(e =>
-        {
-            e.ToTable("Booking_ServiceSetting");
-            e.HasKey(x => x.Id);
-            e.Property(x => x.ColorOverride).HasMaxLength(16);
-            e.HasIndex(x => x.ServiceId).IsUnique();
-        });
-
-        // ---------- Booking_Booking ----------
-        b.Entity<Booking>(e =>
-        {
-            e.ToTable("Booking_Booking");
-            e.HasKey(x => x.Id);
-            e.Property(x => x.Title).HasMaxLength(300).IsRequired();
-            e.Property(x => x.Note).HasMaxLength(2000);
+            e.ToTable("Booking_ResExtra");
+            e.HasKey(x => x.ReservationId);
+            e.Property(x => x.ReservationId).ValueGeneratedNever(); // = ZoneReservation.ID
+            e.Property(x => x.Title).HasMaxLength(300);
             e.Property(x => x.Label).HasConversion<int>();
-            e.HasIndex(x => new { x.ResourceId, x.TimeFrom });
-            e.HasIndex(x => x.TimeFrom);
-
-            e.HasOne(x => x.Resource)
-                .WithMany(r => r.Bookings)
-                .HasForeignKey(x => x.ResourceId)
-                .OnDelete(DeleteBehavior.Restrict);
-
             e.HasMany(x => x.Services)
-                .WithOne(s => s.Booking!)
-                .HasForeignKey(s => s.BookingId)
+                .WithOne(s => s.Extra!)
+                .HasForeignKey(s => s.ReservationId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // ---------- Booking_BookingService ----------
-        b.Entity<BookingServiceItem>(e =>
+        // ---------- Booking_ResService ----------
+        b.Entity<BookingResServiceItem>(e =>
         {
-            e.ToTable("Booking_BookingService");
+            e.ToTable("Booking_ResService");
             e.HasKey(x => x.Id);
             e.Property(x => x.ServiceName).HasMaxLength(300).IsRequired();
             e.Property(x => x.PriceSnapshot).HasColumnType("numeric(18,2)");
-            e.HasIndex(x => x.BookingId);
+            e.HasIndex(x => x.ReservationId);
         });
 
-        // ---------- Read-only легаси (исключены из миграций) ----------
+        // ---------- ZoneReservation (боевая, пишем; из миграций исключена) ----------
+        b.Entity<ZoneReservation>(e =>
+        {
+            e.ToTable("ZoneReservation", t => t.ExcludeFromMigrations());
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("ID").ValueGeneratedOnAdd(); // identity
+            e.Property(x => x.ZoneId).HasColumnName("ZoneID");
+            e.Property(x => x.OrderId).HasColumnName("OrderID");
+        });
+
+        // ---------- Zones (read-only) ----------
+        b.Entity<Zone>(e =>
+        {
+            e.ToTable("Zones", t => t.ExcludeFromMigrations());
+            e.HasKey(x => x.IdZone);
+        });
+
+        // ---------- TLogins (read-only) ----------
+        b.Entity<TLogin>(e =>
+        {
+            e.ToTable("TLogins", t => t.ExcludeFromMigrations());
+            e.HasKey(x => x.Fid);
+            e.Property(x => x.Fid).HasColumnName("FID");
+            e.Property(x => x.Flogin).HasColumnName("FLOGIN");
+            e.Property(x => x.Fuser).HasColumnName("FUSER");
+            e.Property(x => x.Factive).HasColumnName("FACTIVE");
+        });
+
+        // ---------- SingleService / SingleServiceGroup (read-only) ----------
         b.Entity<SingleService>(e =>
         {
             e.ToTable("SingleService", t => t.ExcludeFromMigrations());
@@ -98,17 +98,16 @@ public class BookingDbContext : DbContext
             e.Property(x => x.ParentId).HasColumnName("ParentID");
         });
 
+        // ---------- CashboxVisitor (read-only + создание клиента; есть триггеры) ----------
         b.Entity<CashboxVisitor>(e =>
         {
             e.ToTable("CashboxVisitor", t =>
             {
                 t.ExcludeFromMigrations();
-                // У таблицы есть триггеры в БД. Без этого EF Core 8 вставляет с OUTPUT-клаузой,
-                // что SQL Server запрещает для таблиц с триггерами (ошибка 334).
-                t.HasTrigger("trg_CashboxVisitor");
+                t.HasTrigger("trg_CashboxVisitor"); // 2 триггера в БД → EF не должен использовать OUTPUT
             });
             e.HasKey(x => x.IdVisitor);
-            e.Property(x => x.IdVisitor).ValueGeneratedOnAdd(); // IdVisitor — IDENTITY
+            e.Property(x => x.IdVisitor).ValueGeneratedOnAdd();
         });
     }
 }

@@ -1,4 +1,5 @@
 using BookingSystem.Domain.Entities;
+using BookingSystem.Infrastructure.Legacy;
 using BookingSystem.Shared;
 using BookingSystem.Shared.Dtos;
 using BookingSystem.Shared.Services;
@@ -7,13 +8,11 @@ using Microsoft.EntityFrameworkCore;
 namespace BookingSystem.Infrastructure.Services;
 
 /// <summary>
-/// Брони: чтение диапазона для планировщика и CRUD.
-/// Время «по» и снапшоты цены/длительности/перерыва считает сервер из каталога.
+/// Брони поверх боевой dbo.ZoneReservation + собственные Booking_ResExtra/Booking_ResService.
+/// Создаём/редактируем/удаляем только свои брони (OrderID IS NULL); кассовые (OrderID != null) — только чтение.
 /// </summary>
 public class BookingService : IBookingService
 {
-    private const int DefaultDurationMinutes = 30;
-
     private readonly BookingDbContext _db;
 
     public BookingService(BookingDbContext db) => _db = db;
@@ -21,187 +20,233 @@ public class BookingService : IBookingService
     public async Task<List<BookingEventDto>> GetBookingsAsync(
         DateTime from, DateTime to, int? resourceId, int? groupId, CancellationToken ct = default)
     {
-        // Пересечение интервалов: начинается раньше конца окна и кончается позже начала.
-        var q = _db.Bookings.AsNoTracking()
-            .Include(b => b.Services)
-            .Where(b => b.IsActive && b.TimeFrom < to && b.TimeTo > from);
-
+        var q = _db.ZoneReservations.AsNoTracking()
+            .Where(r => r.DateFrom < to && r.DateTo > from);
         if (resourceId.HasValue)
-            q = q.Where(b => b.ResourceId == resourceId.Value);
+            q = q.Where(r => r.ZoneId == resourceId.Value);
 
-        if (groupId.HasValue)
-            q = q.Where(b => b.Services.Any(s =>
-                _db.SingleServices.Any(ss => ss.Id == s.ServiceId && ss.SingleServiceGroupId == groupId.Value)));
+        var reservations = await q.ToListAsync(ct);
+        if (reservations.Count == 0) return new List<BookingEventDto>();
 
-        var list = await q.ToListAsync(ct);
+        var ids = reservations.Select(r => r.Id).ToList();
 
-        var ids = list.Where(b => b.ClientVisitorId.HasValue).Select(b => b.ClientVisitorId!.Value)
-            .Concat(list.Where(b => b.WaiterVisitorId.HasValue).Select(b => b.WaiterVisitorId!.Value));
-        var names = await ResolveClientNamesAsync(ids, ct);
+        var extras = await _db.ResExtras.AsNoTracking()
+            .Where(e => ids.Contains(e.ReservationId))
+            .ToDictionaryAsync(e => e.ReservationId, ct);
 
-        return list.Select(b => MapToEvent(b, names)).ToList();
+        var svcRows = await _db.ResServices.AsNoTracking()
+            .Where(s => ids.Contains(s.ReservationId))
+            .ToListAsync(ct);
+        var svcByRes = svcRows.GroupBy(s => s.ReservationId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(s => s.SortOrder).ToList());
+
+        var clientIds = extras.Values.Where(e => e.ClientVisitorId.HasValue)
+            .Select(e => e.ClientVisitorId!.Value).Distinct().ToList();
+        var clientNames = clientIds.Count == 0
+            ? new Dictionary<int, string>()
+            : await _db.CashboxVisitors.AsNoTracking().Where(v => clientIds.Contains(v.IdVisitor))
+                .ToDictionaryAsync(v => v.IdVisitor, v => (v.Surname + " " + v.Name).Trim(), ct);
+
+        var waiterIds = extras.Values.Where(e => e.WaiterLoginId.HasValue)
+            .Select(e => e.WaiterLoginId!.Value).Distinct().ToList();
+        var waiterNames = waiterIds.Count == 0
+            ? new Dictionary<int, string>()
+            : await _db.TLogins.AsNoTracking().Where(t => waiterIds.Contains(t.Fid))
+                .ToDictionaryAsync(t => t.Fid, t => t.Fuser ?? "", ct);
+
+        return reservations
+            .Select(r => Map(r,
+                extras.GetValueOrDefault(r.Id),
+                svcByRes.GetValueOrDefault(r.Id),
+                clientNames, waiterNames))
+            .ToList();
     }
 
     public async Task<BookingEventDto> CreateAsync(BookingUpsertRequest request, CancellationToken ct = default)
     {
         var now = DateTime.Now;
-        var booking = new Booking { CreatedAt = now, UpdatedAt = now, IsActive = true };
+        var reservation = new ZoneReservation
+        {
+            ZoneId = request.ResourceId,
+            DateFrom = request.TimeFrom,
+            DateTo = ResolveEnd(request),
+            Info = NormalizeNote(request.Note),
+            OrderId = null // своя бронь, не привязана к кассовому заказу
+        };
+        _db.ZoneReservations.Add(reservation);
+        await _db.SaveChangesAsync(ct); // получить identity ID
 
-        await ApplyRequestAsync(booking, request, ct);
-
-        _db.Bookings.Add(booking);
+        _db.ResExtras.Add(new BookingResExtra
+        {
+            ReservationId = reservation.Id,
+            Title = string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim(),
+            ClientVisitorId = request.ClientVisitorId,
+            WaiterLoginId = request.WaiterVisitorId,
+            Label = request.Label,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        await AddServicesAsync(reservation.Id, request.Services, ct);
         await _db.SaveChangesAsync(ct);
 
-        return (await GetByIdAsync(booking.Id, ct))!;
+        return (await GetByIdAsync(reservation.Id, ct))!;
     }
 
     public async Task<BookingEventDto?> UpdateAsync(int id, BookingUpsertRequest request, CancellationToken ct = default)
     {
-        var booking = await _db.Bookings
-            .Include(b => b.Services)
-            .FirstOrDefaultAsync(b => b.Id == id && b.IsActive, ct);
-        if (booking is null) return null;
+        var reservation = await _db.ZoneReservations.FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (reservation is null) return null;
+        // OrderID не трогаем — связь брони с кассовым заказом сохраняется.
 
-        // Пересобираем строки услуг заново.
-        _db.BookingServiceItems.RemoveRange(booking.Services);
-        booking.Services.Clear();
+        reservation.ZoneId = request.ResourceId;
+        reservation.DateFrom = request.TimeFrom;
+        reservation.DateTo = ResolveEnd(request);
+        reservation.Info = NormalizeNote(request.Note);
 
-        await ApplyRequestAsync(booking, request, ct);
-        booking.UpdatedAt = DateTime.Now;
+        var extra = await _db.ResExtras.FirstOrDefaultAsync(e => e.ReservationId == id, ct);
+        if (extra is null)
+        {
+            extra = new BookingResExtra { ReservationId = id, CreatedAt = DateTime.Now };
+            _db.ResExtras.Add(extra);
+        }
+        extra.Title = string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim();
+        extra.ClientVisitorId = request.ClientVisitorId;
+        extra.WaiterLoginId = request.WaiterVisitorId;
+        extra.Label = request.Label;
+        extra.UpdatedAt = DateTime.Now;
+
+        var oldServices = await _db.ResServices.Where(s => s.ReservationId == id).ToListAsync(ct);
+        _db.ResServices.RemoveRange(oldServices);
+        await AddServicesAsync(id, request.Services, ct);
 
         await _db.SaveChangesAsync(ct);
-        return await GetByIdAsync(booking.Id, ct);
+        return await GetByIdAsync(id, ct);
     }
 
     public async Task<bool> DeleteAsync(int id, CancellationToken ct = default)
     {
-        var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == id && b.IsActive, ct);
-        if (booking is null) return false;
+        var reservation = await _db.ZoneReservations.FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (reservation is null) return false;
+        // Удаляем только бронь (+ companion). Кассовый заказ (OrderID) не трогаем.
 
-        booking.IsActive = false;
-        booking.UpdatedAt = DateTime.Now;
+        var services = await _db.ResServices.Where(s => s.ReservationId == id).ToListAsync(ct);
+        _db.ResServices.RemoveRange(services);
+        var extra = await _db.ResExtras.FirstOrDefaultAsync(e => e.ReservationId == id, ct);
+        if (extra is not null) _db.ResExtras.Remove(extra);
+        _db.ZoneReservations.Remove(reservation);
+
         await _db.SaveChangesAsync(ct);
         return true;
     }
 
     // ===== helpers =====
 
-    /// <summary>Заполняет поля брони из запроса: услуги-снапшоты, время «по», прочие поля.</summary>
-    private async Task ApplyRequestAsync(Booking booking, BookingUpsertRequest request, CancellationToken ct)
+    private static DateTime ResolveEnd(BookingUpsertRequest req) =>
+        req.TimeToOverride.HasValue && req.TimeToOverride.Value > req.TimeFrom
+            ? req.TimeToOverride.Value
+            : req.TimeFrom.AddHours(1);
+
+    private static string? NormalizeNote(string? note) =>
+        string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+
+    private async Task AddServicesAsync(int reservationId, List<BookingServiceSelection> selections, CancellationToken ct)
     {
-        booking.ResourceId = request.ResourceId;
-        booking.Title = (request.Title ?? string.Empty).Trim();
-        booking.ClientVisitorId = request.ClientVisitorId;
-        booking.WaiterVisitorId = request.WaiterVisitorId;
-        booking.Label = request.Label;
-        booking.Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
-        booking.TimeFrom = request.TimeFrom;
-        booking.Date = request.TimeFrom.Date;
+        var ids = selections.Select(s => s.ServiceId).Distinct().ToList();
+        if (ids.Count == 0) return;
 
-        // Снапшоты услуг из каталога (SingleService + Booking_ServiceSetting).
-        var ids = request.Services.Select(s => s.ServiceId).Distinct().ToList();
-        var catalog = ids.Count == 0
-            ? new Dictionary<int, (string Name, decimal Price, int Dur, int Brk)>()
-            : await (from s in _db.SingleServices.AsNoTracking().Where(s => ids.Contains(s.Id))
-                     join st in _db.ServiceSettings.AsNoTracking() on s.Id equals st.ServiceId into stg
-                     from st in stg.DefaultIfEmpty()
-                     select new
-                     {
-                         s.Id,
-                         s.Name,
-                         s.Price,
-                         Dur = st != null ? st.DurationMinutes : 0,
-                         Brk = st != null ? st.BreakMinutes : 0
-                     })
-                .ToDictionaryAsync(x => x.Id, x => (x.Name, x.Price, x.Dur, x.Brk), ct);
+        var catalog = await _db.SingleServices.AsNoTracking()
+            .Where(s => ids.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, s => new { s.Name, s.Price }, ct);
 
-        var totalMinutes = 0;
         var order = 0;
-        foreach (var sel in request.Services)
+        foreach (var sel in selections)
         {
             if (!catalog.TryGetValue(sel.ServiceId, out var info)) continue;
-            booking.Services.Add(new BookingServiceItem
+            _db.ResServices.Add(new BookingResServiceItem
             {
+                ReservationId = reservationId,
                 ServiceId = sel.ServiceId,
                 ServiceName = info.Name,
                 PriceSnapshot = info.Price,
-                DurationSnapshot = info.Dur,
-                BreakSnapshot = info.Brk,
                 SortOrder = order++,
                 IsDone = sel.IsDone
             });
-            totalMinutes += info.Dur + info.Brk;
         }
-
-        if (request.TimeToOverride.HasValue && request.TimeToOverride.Value > booking.TimeFrom)
-            booking.TimeTo = request.TimeToOverride.Value;
-        else
-            booking.TimeTo = booking.TimeFrom.AddMinutes(totalMinutes > 0 ? totalMinutes : DefaultDurationMinutes);
     }
 
     private async Task<BookingEventDto?> GetByIdAsync(int id, CancellationToken ct)
     {
-        var b = await _db.Bookings.AsNoTracking()
-            .Include(x => x.Services)
-            .FirstOrDefaultAsync(x => x.Id == id, ct);
-        if (b is null) return null;
+        var r = await _db.ZoneReservations.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (r is null) return null;
 
-        var ids = new[] { b.ClientVisitorId, b.WaiterVisitorId }.Where(x => x.HasValue).Select(x => x!.Value);
-        var names = await ResolveClientNamesAsync(ids, ct);
-        return MapToEvent(b, names);
+        var extra = await _db.ResExtras.AsNoTracking().FirstOrDefaultAsync(e => e.ReservationId == id, ct);
+        var svc = await _db.ResServices.AsNoTracking()
+            .Where(s => s.ReservationId == id).OrderBy(s => s.SortOrder).ToListAsync(ct);
+
+        var clientNames = new Dictionary<int, string>();
+        if (extra?.ClientVisitorId is int cid)
+        {
+            var name = await _db.CashboxVisitors.AsNoTracking()
+                .Where(v => v.IdVisitor == cid).Select(v => (v.Surname + " " + v.Name).Trim())
+                .FirstOrDefaultAsync(ct);
+            if (name is not null) clientNames[cid] = name;
+        }
+        var waiterNames = new Dictionary<int, string>();
+        if (extra?.WaiterLoginId is int wid)
+        {
+            var name = await _db.TLogins.AsNoTracking()
+                .Where(t => t.Fid == wid).Select(t => t.Fuser ?? "").FirstOrDefaultAsync(ct);
+            if (name is not null) waiterNames[wid] = name;
+        }
+
+        return Map(r, extra, svc, clientNames, waiterNames);
     }
 
-    private async Task<Dictionary<int, string>> ResolveClientNamesAsync(IEnumerable<int> ids, CancellationToken ct)
+    private static BookingEventDto Map(
+        ZoneReservation r,
+        BookingResExtra? ex,
+        List<BookingResServiceItem>? svc,
+        IReadOnlyDictionary<int, string> clientNames,
+        IReadOnlyDictionary<int, string> waiterNames)
     {
-        var idList = ids.Distinct().ToList();
-        if (idList.Count == 0) return new Dictionary<int, string>();
+        var label = ex?.Label ?? BookingLabel.None;
 
-        return await _db.CashboxVisitors.AsNoTracking()
-            .Where(v => idList.Contains(v.IdVisitor))
-            .ToDictionaryAsync(v => v.IdVisitor, v => (v.Surname + " " + v.Name).Trim(), ct);
-    }
+        var title = ex?.Title;
+        if (string.IsNullOrWhiteSpace(title))
+            title = r.OrderId != null ? $"Касса #{r.OrderId}" : "(бронь)";
 
-    private static BookingEventDto MapToEvent(Booking b, IReadOnlyDictionary<int, string> clientNames)
-    {
-        var services = b.Services
-            .OrderBy(s => s.SortOrder)
+        string? clientName = null;
+        if (ex?.ClientVisitorId is int cid) clientNames.TryGetValue(cid, out clientName);
+        string? waiterName = null;
+        if (ex?.WaiterLoginId is int wid) waiterNames.TryGetValue(wid, out waiterName);
+
+        var services = (svc ?? new List<BookingResServiceItem>())
             .Select(s => new BookingServiceLineDto
             {
                 ServiceId = s.ServiceId,
                 ServiceName = s.ServiceName,
                 Price = s.PriceSnapshot,
-                DurationMinutes = s.DurationSnapshot,
-                BreakMinutes = s.BreakSnapshot,
                 IsDone = s.IsDone
-            })
-            .ToList();
-
-        string? clientName = null;
-        if (b.ClientVisitorId.HasValue)
-            clientNames.TryGetValue(b.ClientVisitorId.Value, out clientName);
-
-        string? waiterName = null;
-        if (b.WaiterVisitorId.HasValue)
-            clientNames.TryGetValue(b.WaiterVisitorId.Value, out waiterName);
+            }).ToList();
 
         return new BookingEventDto
         {
-            Id = b.Id,
-            ResourceId = b.ResourceId,
-            Title = b.Title,
-            TimeFrom = b.TimeFrom,
-            TimeTo = b.TimeTo,
-            Label = b.Label,
-            LabelName = BookingLabelInfo.Name(b.Label),
-            Color = BookingLabelInfo.Color(b.Label),
-            Note = b.Note,
-            ClientVisitorId = b.ClientVisitorId,
+            Id = r.Id,
+            ResourceId = r.ZoneId,
+            Title = title,
+            TimeFrom = r.DateFrom,
+            TimeTo = r.DateTo,
+            Label = label,
+            LabelName = BookingLabelInfo.Name(label),
+            Color = BookingLabelInfo.Color(label),
+            Note = r.Info,
+            ClientVisitorId = ex?.ClientVisitorId,
             ClientName = clientName,
-            WaiterVisitorId = b.WaiterVisitorId,
+            WaiterVisitorId = ex?.WaiterLoginId,
             WaiterName = waiterName,
             Services = services,
             TotalPrice = services.Sum(s => s.Price),
-            TotalMinutes = services.Sum(s => s.DurationMinutes + s.BreakMinutes)
+            CanEdit = true   // тестовая БД — редактируем все брони, включая кассовые
         };
     }
 }
