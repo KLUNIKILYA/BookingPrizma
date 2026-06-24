@@ -4,6 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- На машине нет рантайма .NET 8 (есть только 6 и 10) — разрешаем запуск на .NET 10. -->
+    <RollForward>Major</RollForward>
   </PropertyGroup>
 
   <ItemGroup>

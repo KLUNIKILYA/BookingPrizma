@@ -7,7 +7,10 @@ public class BookingServiceLineDto
 {
     public int ServiceId { get; set; }
     public string ServiceName { get; set; } = string.Empty;
+    /// <summary>Цена за единицу.</summary>
     public decimal Price { get; set; }
+    /// <summary>Количество (по умолчанию 1).</summary>
+    public int Quantity { get; set; } = 1;
     public bool IsDone { get; set; }
 }
 
@@ -40,10 +43,40 @@ public class BookingEventDto
     public bool CanEdit { get; set; }
 }
 
+/// <summary>Пересечение брони: комната уже занята другой записью на пересекающееся время.</summary>
+public class BookingConflictDto
+{
+    public int ResourceId { get; set; }
+    public string ResourceName { get; set; } = string.Empty;
+    public int ExistingId { get; set; }
+    public DateTime TimeFrom { get; set; }
+    public DateTime TimeTo { get; set; }
+    public string? Title { get; set; }
+}
+
+/// <summary>Занятость на интервале: id комнаты/официанта, имя, время и кто занял (для подсказок в окне).</summary>
+public class BusySlotDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public DateTime TimeFrom { get; set; }
+    public DateTime TimeTo { get; set; }
+    public string? Title { get; set; }
+}
+
+/// <summary>Доступность на выбранный интервал: какие комнаты и официанты заняты.</summary>
+public class AvailabilityDto
+{
+    public List<BusySlotDto> Rooms { get; set; } = new();
+    public List<BusySlotDto> Waiters { get; set; } = new();
+}
+
 /// <summary>Выбор услуги при создании/редактировании (порядок важен, дубликаты допускаются).</summary>
 public class BookingServiceSelection
 {
     public int ServiceId { get; set; }
+    /// <summary>Количество (по умолчанию 1).</summary>
+    public int Quantity { get; set; } = 1;
     public bool IsDone { get; set; }
 }
 

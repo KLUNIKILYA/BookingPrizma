@@ -18,6 +18,9 @@ public class BookingResServiceItem
 
     public decimal PriceSnapshot { get; set; }
 
+    /// <summary>Количество услуги (по умолчанию 1). Сумма позиции = PriceSnapshot * Quantity.</summary>
+    public int Quantity { get; set; } = 1;
+
     public int SortOrder { get; set; }
 
     /// <summary>«Готово» — отметка о выполнении услуги.</summary>

@@ -40,4 +40,12 @@ public interface IBookingService
     Task<BookingEventDto?> UpdateAsync(int id, BookingUpsertRequest request, CancellationToken ct = default);
 
     Task<bool> DeleteAsync(int id, CancellationToken ct = default);
+
+    /// <summary>Пересечения брони по времени в указанных комнатах (исключая бронь excludeId).</summary>
+    Task<List<BookingConflictDto>> CheckConflictsAsync(
+        int? excludeId, IReadOnlyCollection<int> resourceIds, DateTime from, DateTime to, CancellationToken ct = default);
+
+    /// <summary>Занятость комнат и официантов на интервале [from; to) (исключая бронь excludeId).</summary>
+    Task<AvailabilityDto> GetAvailabilityAsync(
+        DateTime from, DateTime to, int? excludeId, CancellationToken ct = default);
 }

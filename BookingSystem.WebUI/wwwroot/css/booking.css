@@ -79,7 +79,9 @@ html, body {
 /* ---------- Modal editor ---------- */
 .bk-modal-backdrop {
     position: fixed; inset: 0; background: rgba(20,28,48,.45);
-    display: flex; align-items: center; justify-content: center; z-index: 1200;
+    display: flex; align-items: center; justify-content: center;
+    /* Выше trial-баннера Syncfusion (z-index 999999999), иначе он перекрывает шапку окна в полноэкранном режиме. */
+    z-index: 1000000000;
 }
 .bk-modal {
     width: min(960px, 95vw); max-height: 92vh; overflow: auto;
@@ -91,7 +93,7 @@ html, body {
     position: sticky; top: 0; background: #fff; border-radius: 16px 16px 0 0; z-index: 1;
 }
 .bk-modal__title { font-size: 18px; font-weight: 700; }
-.bk-modal__body { padding: 18px 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.bk-modal__body { padding: 18px 20px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; }
 .bk-modal__foot { display: flex; gap: 10px; justify-content: flex-end; padding: 14px 20px; border-top: 1px solid var(--bk-border); position: sticky; bottom: 0; background: #fff; }
 .bk-section-title { font-size: 13px; font-weight: 700; color: var(--bk-muted); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 10px; }
 
@@ -104,6 +106,20 @@ html, body {
 .bk-form-row textarea { height: 78px; padding: 8px 10px; resize: vertical; }
 .bk-form-row input:focus, .bk-form-row select:focus, .bk-form-row textarea:focus { border-color: var(--bk-primary); }
 .bk-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* выбор нескольких комнат */
+.bk-room-multi { display: flex; flex-direction: column; gap: 2px; max-height: 140px; overflow-y: auto; border: 1px solid var(--bk-border); border-radius: 8px; padding: 6px 10px; background: #fff; }
+.bk-room-multi__item { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 400; color: var(--bk-text); cursor: pointer; padding: 3px 0; }
+.bk-room-multi__item input[type="checkbox"] { width: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--bk-primary); cursor: pointer; }
+.bk-room-multi__item.is-busy { color: var(--bk-muted); opacity: .85; cursor: not-allowed; }
+.bk-room-multi__item.is-busy input { cursor: not-allowed; }
+.bk-busy-note { font-size: 11.5px; color: #c2410c; margin-left: auto; white-space: nowrap; }
+
+/* заметное красное уведомление (конфликт/ошибка сохранения) */
+.bk-alert { margin: 0 20px 6px; padding: 9px 12px; border-radius: 8px; background: #fdecee; border: 1px solid #f0b3bb; color: #b3263a; font-size: 13px; font-weight: 600; line-height: 1.35; }
+
+/* предупреждение о длительности */
+.bk-warn { margin: -4px 0 10px; color: #c2410c; font-size: 12.5px; font-weight: 600; }
 
 /* client picker */
 .bk-client-row { display: flex; gap: 8px; align-items: center; }
@@ -120,17 +136,19 @@ html, body {
 
 /* service grids */
 .bk-grid { border: 1px solid var(--bk-border); border-radius: 10px; overflow: hidden; }
-.bk-grid__head, .bk-grid__row { display: grid; grid-template-columns: 1fr 70px 56px 56px; align-items: center; }
-.bk-grid--sel .bk-grid__head, .bk-grid--sel .bk-grid__row { grid-template-columns: 1fr 60px 48px 48px 44px 34px; }
-.bk-grid--svc .bk-grid__head, .bk-grid--svc .bk-grid__row { grid-template-columns: 1fr 80px; }
-.bk-grid--sel2 .bk-grid__head, .bk-grid--sel2 .bk-grid__row { grid-template-columns: 1fr 80px 56px 34px; }
+.bk-grid__head, .bk-grid__row { display: grid; grid-template-columns: minmax(0, 1fr) 70px 56px 56px; align-items: center; }
+.bk-grid--sel .bk-grid__head, .bk-grid--sel .bk-grid__row { grid-template-columns: minmax(0, 1fr) 60px 48px 48px 44px 34px; }
+.bk-grid--svc .bk-grid__head, .bk-grid--svc .bk-grid__row { grid-template-columns: minmax(0, 1fr) 80px; }
+.bk-grid--sel2 .bk-grid__head, .bk-grid--sel2 .bk-grid__row { grid-template-columns: minmax(0, 1fr) 60px 56px 68px 34px; }
 .bk-grid__head { background: #f5f7fc; font-size: 12px; color: var(--bk-muted); font-weight: 700; }
-.bk-grid__head > div, .bk-grid__row > div { padding: 7px 10px; font-size: 13px; }
+.bk-grid__head > div, .bk-grid__row > div { padding: 7px 8px; font-size: 13px; min-width: 0; }
+/* Название не должно распирать строку — обрезаем с многоточием. */
+.bk-grid__head > div:first-child, .bk-grid__row > div:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bk-grid__row { border-top: 1px solid var(--bk-border); cursor: pointer; }
 .bk-grid__row:hover { background: #f7f9ff; }
 .bk-grid__row.is-selected { background: #eef1fb; }
-.bk-grid__scroll { max-height: 200px; overflow: auto; }
-.bk-grid__num { text-align: right; }
+.bk-grid__scroll { max-height: 200px; overflow-y: auto; overflow-x: hidden; }
+.bk-grid__num { text-align: right; white-space: nowrap; }
 .bk-grid__empty { padding: 14px; text-align: center; color: var(--bk-muted); font-size: 13px; }
 
 .bk-sums { display: flex; gap: 18px; justify-content: flex-end; padding: 8px 4px 0; font-size: 14px; }
@@ -139,8 +157,19 @@ html, body {
 .bk-icon-btn { border: none; background: transparent; cursor: pointer; color: var(--bk-muted); font-size: 16px; }
 .bk-icon-btn:hover { color: #e35d6a; }
 
+/* количество услуги в строке */
+.bk-qty { width: 100%; height: 30px; padding: 0 4px; border: 1px solid var(--bk-border); border-radius: 6px; font-size: 13px; text-align: center; color: var(--bk-text); background: #fff; outline: none; }
+.bk-qty:focus { border-color: var(--bk-primary); }
+
+.bk-modal__head-actions { display: flex; align-items: center; gap: 4px; }
+.bk-modal__icon { border: none; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; color: var(--bk-muted); padding: 2px 6px; border-radius: 6px; }
+.bk-modal__icon:hover { background: #f0f2f8; color: var(--bk-text); }
 .bk-modal__close { border: none; background: transparent; font-size: 20px; cursor: pointer; color: var(--bk-muted); }
 .bk-error { color: #c94350; font-size: 13px; padding: 0 20px; }
+
+/* окно во весь экран */
+.bk-modal--full { width: 100vw; max-width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+.bk-modal--full .bk-modal__head { border-radius: 0; }
 
 @media (max-width: 820px) {
     .bk-modal__body { grid-template-columns: 1fr; }
@@ -173,6 +202,15 @@ html, body {
 /* ---------- Selection action bar ---------- */
 .bk-selbar { display: flex; align-items: center; gap: 10px; background: #eef1fb; border: 1px solid #c7d2f7; border-radius: 10px; padding: 8px 12px; font-size: 13px; color: #23306b; }
 .bk-selbar b { color: #1a245a; }
+
+/* кнопка возврата к выделенному периоду */
+.bk-restore { width: 100%; white-space: normal; height: auto; min-height: 36px; padding: 8px 10px; line-height: 1.25; text-align: center; }
+
+/* ---------- Собственное выделение ячеек сетки (время × комнаты) ---------- */
+.e-schedule td.e-work-cells { user-select: none; }
+.e-schedule td.bk-cell-sel { background-color: rgba(79, 109, 245, .20) !important; box-shadow: inset 0 0 0 1px rgba(79, 109, 245, .45); }
+/* Прячем штатную подсветку выбора Syncfusion — используем свою (.bk-cell-sel). */
+.e-schedule td.e-selected-cell:not(.bk-cell-sel) { background-color: transparent !important; }
 
 /* Прячем встроенную англоязычную кнопку «Today» в шапке планировщика — есть своя «Сегодня» в календаре. */
 .e-schedule-toolbar .e-today,

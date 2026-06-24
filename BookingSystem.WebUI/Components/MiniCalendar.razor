@@ -67,6 +67,15 @@
     private void PrevMonth() => _baseMonth = _baseMonth.AddMonths(-1);
     private void NextMonth() => _baseMonth = _baseMonth.AddMonths(1);
 
+    /// <summary>Выставить выделение извне (без вызова OnRangeSelected) — для синхронизации с планировщиком.</summary>
+    public void SetSelection(DateTime start, DateTime end)
+    {
+        _selStart = start.Date <= end.Date ? start.Date : end.Date;
+        _selEnd = start.Date <= end.Date ? end.Date : start.Date;
+        _baseMonth = new DateTime(_selStart.Value.Year, _selStart.Value.Month, 1);
+        StateHasChanged();
+    }
+
     private async Task GoToday()
     {
         _baseMonth = new DateTime(Today.Year, Today.Month, 1);

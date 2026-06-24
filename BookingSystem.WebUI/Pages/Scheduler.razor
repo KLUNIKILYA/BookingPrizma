@@ -27,12 +27,18 @@
 
 <div class="bk-workspace">
     <aside class="bk-sidebar">
-        <MiniCalendar OnRangeSelected="OnRangeSelected" />
+        <MiniCalendar @ref="_miniCal" OnRangeSelected="OnRangeSelected" />
+        @if (_periodDays == 1 && _savedPeriod is { } sp && sp.end.Date > sp.start.Date)
+        {
+            <button class="bk-btn bk-btn--ghost bk-restore" @onclick="RestorePeriod"
+                    title="Вернуться к выделенному периоду">
+                ↩ Вернуть период @sp.start.ToString("dd.MM") – @sp.end.ToString("dd.MM")
+            </button>
+        }
         @if (_selStart is not null)
         {
             <div class="bk-selbar">
                 <span>Выбрано: <b>@RangeText</b></span>
-                <button class="bk-btn" @onclick="BookSelectedRange">Забронировать</button>
             </div>
         }
     </aside>
@@ -134,6 +140,8 @@
 
     private DateTime? _selStart;
     private DateTime? _selEnd;
+    private (DateTime start, DateTime end)? _savedPeriod;  // последний многодневный период — для кнопки «Вернуть период»
+    private MiniCalendar? _miniCal;
 
     private string RangeText => _selStart is null
         ? ""
@@ -186,7 +194,11 @@
         StateHasChanged();
     }
 
-    private Task ReloadAsync() => LoadAsync(SelectedDate);
+    private async Task ReloadAsync()
+    {
+        await JS.InvokeVoidAsync("bkClearGridSelection");   // снять подсветку выделения после изменения
+        await LoadAsync(SelectedDate);
+    }
 
     private async Task OnFilterChanged()
     {
@@ -202,8 +214,24 @@
 
         // Весь выбранный период показываем целиком: колонки-дни ужимаются под ширину, без прокрутки.
         _periodDays = Math.Clamp((range.End.Date - range.Start.Date).Days + 1, 1, 92);
+        // Запоминаем именно многодневный период — чтобы вернуться к нему после клика по дню в сетке.
+        if (range.End.Date > range.Start.Date)
+            _savedPeriod = (range.Start.Date, range.End.Date);
 
         await LoadAsync(SelectedDate);
+    }
+
+    /// <summary>Вернуть планировщик к ранее выделенному многодневному периоду.</summary>
+    private async Task RestorePeriod()
+    {
+        if (_savedPeriod is not { } sp) return;
+        _selStart = sp.start;
+        _selEnd = sp.end;
+        SelectedDate = sp.start;
+        _periodDays = Math.Clamp((sp.end.Date - sp.start.Date).Days + 1, 1, 92);
+        _miniCal?.SetSelection(sp.start, sp.end);
+        await LoadAsync(SelectedDate);
+        StateHasChanged();
     }
 
     private SchedulerEvent ToEvent(BookingEventDto d) => new()
@@ -265,13 +293,8 @@
             {
                 await _editor!.OpenForEditAsync(dto);
             }
-            else if (data is not null)
-            {
-                var resourceId = data.ResourceId > 0
-                    ? data.ResourceId
-                    : _visibleResources.FirstOrDefault()?.Id ?? _allResourceModels.FirstOrDefault()?.Id ?? 0;
-                await _editor!.OpenForCreateAsync(resourceId, data.StartTime);
-            }
+            // По пустой ячейке окно не открываем: оставляем выделение (мышь/Ctrl/Shift),
+            // окно открывается кликом по выделенной зоне (JS → OpenGridSelection).
         }
         else if (args.Type is PopupType.DeleteAlert)
         {
@@ -299,10 +322,16 @@
                     WaiterVisitorId = dto.WaiterVisitorId,
                     Label = dto.Label,
                     Note = dto.Note,
-                    Services = dto.Services.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, IsDone = s.IsDone }).ToList()
+                    Services = dto.Services.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, Quantity = s.Quantity, IsDone = s.IsDone }).ToList()
                 };
-                await Api.UpdateAsync(dto.Id, req);
-                await LoadAsync(SelectedDate);
+                var res = await Api.UpdateAsync(dto.Id, req);
+                if (!res.Ok && res.Conflicts.Count > 0)
+                {
+                    var c = res.Conflicts[0];
+                    await JS.InvokeVoidAsync("alert",
+                        $"Нельзя перенести: {c.ResourceName} занята ({(string.IsNullOrWhiteSpace(c.Title) ? "бронь" : c.Title)}, {c.TimeFrom:HH:mm}–{c.TimeTo:HH:mm}).");
+                }
+                await LoadAsync(SelectedDate); // при конфликте перезагрузка вернёт бронь на место
             }
         }
     }
@@ -314,15 +343,37 @@
         await _editor!.OpenForCreateAsync(resourceId, start);
     }
 
-    private async Task BookSelectedRange()
+    /// <summary>Открыть окно бронирования по клику на выделенную в сетке зону:
+    /// период (по времени) × набор комнат (по колонкам).</summary>
+    [JSInvokable]
+    public async Task OpenGridSelection()
     {
-        if (_selStart is null) return;
-        var resourceId = _visibleResources.FirstOrDefault()?.Id ?? _allResourceModels.FirstOrDefault()?.Id ?? 0;
-        var start = _selStart.Value.Date.AddHours(10);
-        var multiDay = _selEnd is { } e && e.Date > _selStart.Value.Date;
-        var end = multiDay ? _selEnd!.Value.Date.AddHours(22) : start.AddHours(1);
-        await _editor!.OpenForCreateRangeAsync(resourceId, start, end);
+        var sel = await JS.InvokeAsync<GridSelection?>("bkGetGridSelection");
+        if (sel is null || sel.GroupIndices.Length == 0) return;
+
+        // Syncfusion трактует data-date как UTC, поэтому берём UTC-составляющие (без сдвига часового пояса).
+        var start = DateTimeOffset.FromUnixTimeMilliseconds(sel.StartMs).UtcDateTime;
+        var end = DateTimeOffset.FromUnixTimeMilliseconds(sel.EndMs).UtcDateTime;
+
+        var rooms = sel.GroupIndices
+            .Where(i => i >= 0 && i < _visibleResources.Count)
+            .Select(i => _visibleResources[i].Id)
+            .Distinct()
+            .ToList();
+        if (rooms.Count == 0) return;
+
+        await _editor!.OpenForCreateMultiAsync(rooms, start, end);
+        StateHasChanged();
     }
+
+    private sealed class GridSelection
+    {
+        public long StartMs { get; set; }
+        public long EndMs { get; set; }
+        public int[] GroupIndices { get; set; } = Array.Empty<int>();
+    }
+
+    private bool? _lastGridSelEnabled;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -331,16 +382,25 @@
             _selfRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("bkSetupDateClick", _selfRef);
         }
+
+        // Своё выделение сетки — только в режиме одного дня (колонки = комнаты).
+        var enable = _periodDays == 1;
+        if (_lastGridSelEnabled != enable)
+        {
+            _lastGridSelEnabled = enable;
+            await JS.InvokeVoidAsync("bkSetGridSelEnabled", enable);
+        }
     }
 
     /// <summary>Клик по дате в шапке планировщика — открыть этот день.</summary>
     [JSInvokable]
     public async Task OpenDay(double epochMs)
     {
-        var date = DateTimeOffset.FromUnixTimeMilliseconds((long)epochMs).LocalDateTime.Date;
+        var date = DateTimeOffset.FromUnixTimeMilliseconds((long)epochMs).UtcDateTime.Date;
         SelectedDate = date;
         _selStart = _selEnd = date;
         _periodDays = 1;
+        _miniCal?.SetSelection(date, date);
         await LoadAsync(date);
         StateHasChanged();
     }

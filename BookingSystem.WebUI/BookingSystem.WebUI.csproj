@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Полные данные ICU, чтобы работали русские названия месяцев/дней (иначе WASM грузит урезанный набор и показывает английские). -->
     <BlazorWebAssemblyLoadAllGlobalizationData>true</BlazorWebAssemblyLoadAllGlobalizationData>
+    <!-- На машине нет рантайма .NET 8 (есть только 6 и 10) — dev-сервер запускаем на .NET 10. -->
+    <RollForward>Major</RollForward>
   </PropertyGroup>
 
   <ItemGroup>

@@ -49,6 +49,7 @@ public class BookingDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.ServiceName).HasMaxLength(300).IsRequired();
             e.Property(x => x.PriceSnapshot).HasColumnType("numeric(18,2)");
+            e.Property(x => x.Quantity).HasDefaultValue(1);
             e.HasIndex(x => x.ReservationId);
         });
 

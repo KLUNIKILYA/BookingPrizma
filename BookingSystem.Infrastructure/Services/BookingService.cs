@@ -64,6 +64,10 @@ public class BookingService : IBookingService
 
     public async Task<BookingEventDto> CreateAsync(BookingUpsertRequest request, CancellationToken ct = default)
     {
+        var end = ResolveEnd(request);
+        var conflicts = await CheckConflictsAsync(null, new[] { request.ResourceId }, request.TimeFrom, end, ct);
+        if (conflicts.Count > 0) throw new BookingConflictException(conflicts);
+
         var now = DateTime.Now;
         var reservation = new ZoneReservation
         {
@@ -97,6 +101,9 @@ public class BookingService : IBookingService
         var reservation = await _db.ZoneReservations.FirstOrDefaultAsync(r => r.Id == id, ct);
         if (reservation is null) return null;
         // OrderID не трогаем — связь брони с кассовым заказом сохраняется.
+
+        var conflicts = await CheckConflictsAsync(id, new[] { request.ResourceId }, request.TimeFrom, ResolveEnd(request), ct);
+        if (conflicts.Count > 0) throw new BookingConflictException(conflicts);
 
         reservation.ZoneId = request.ResourceId;
         reservation.DateFrom = request.TimeFrom;
@@ -139,6 +146,116 @@ public class BookingService : IBookingService
         return true;
     }
 
+    public async Task<List<BookingConflictDto>> CheckConflictsAsync(
+        int? excludeId, IReadOnlyCollection<int> resourceIds, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (resourceIds is null || resourceIds.Count == 0 || to <= from)
+            return new List<BookingConflictDto>();
+
+        var ids = resourceIds.Where(i => i > 0).Distinct().ToList();
+        if (ids.Count == 0) return new List<BookingConflictDto>();
+
+        // Пересечение: существующая.DateFrom < новая.DateTo И существующая.DateTo > новая.DateFrom.
+        // Касание границами (10:00–11:00 и 11:00–12:00) пересечением не считается.
+        var q = _db.ZoneReservations.AsNoTracking()
+            .Where(r => ids.Contains(r.ZoneId) && r.DateFrom < to && r.DateTo > from);
+        if (excludeId.HasValue)
+            q = q.Where(r => r.Id != excludeId.Value);
+
+        var rows = await q.ToListAsync(ct);
+        if (rows.Count == 0) return new List<BookingConflictDto>();
+
+        var roomNames = await _db.Zones.AsNoTracking()
+            .Where(z => ids.Contains(z.IdZone))
+            .ToDictionaryAsync(z => z.IdZone, z => z.NameZone, ct);
+
+        var resIds = rows.Select(r => r.Id).ToList();
+        var titles = await _db.ResExtras.AsNoTracking()
+            .Where(e => resIds.Contains(e.ReservationId))
+            .ToDictionaryAsync(e => e.ReservationId, e => e.Title, ct);
+
+        return rows.Select(r => new BookingConflictDto
+        {
+            ResourceId = r.ZoneId,
+            ResourceName = roomNames.GetValueOrDefault(r.ZoneId, ""),
+            ExistingId = r.Id,
+            TimeFrom = r.DateFrom,
+            TimeTo = r.DateTo,
+            Title = titles.GetValueOrDefault(r.Id) ?? (r.OrderId != null ? $"Касса #{r.OrderId}" : null)
+        }).ToList();
+    }
+
+    public async Task<AvailabilityDto> GetAvailabilityAsync(
+        DateTime from, DateTime to, int? excludeId, CancellationToken ct = default)
+    {
+        var result = new AvailabilityDto();
+        if (to <= from) return result;
+
+        var q = _db.ZoneReservations.AsNoTracking()
+            .Where(r => r.DateFrom < to && r.DateTo > from);
+        if (excludeId.HasValue) q = q.Where(r => r.Id != excludeId.Value);
+
+        var rows = await q.ToListAsync(ct);
+        if (rows.Count == 0) return result;
+
+        var roomIds = rows.Select(r => r.ZoneId).Distinct().ToList();
+        var roomNames = await _db.Zones.AsNoTracking()
+            .Where(z => roomIds.Contains(z.IdZone))
+            .ToDictionaryAsync(z => z.IdZone, z => z.NameZone, ct);
+
+        var resIds = rows.Select(r => r.Id).ToList();
+        var extras = await _db.ResExtras.AsNoTracking()
+            .Where(e => resIds.Contains(e.ReservationId))
+            .ToDictionaryAsync(e => e.ReservationId, ct);
+
+        var clientIds = extras.Values.Where(e => e.ClientVisitorId.HasValue)
+            .Select(e => e.ClientVisitorId!.Value).Distinct().ToList();
+        var clientNames = clientIds.Count == 0
+            ? new Dictionary<int, string>()
+            : await _db.CashboxVisitors.AsNoTracking().Where(v => clientIds.Contains(v.IdVisitor))
+                .ToDictionaryAsync(v => v.IdVisitor, v => (v.Surname + " " + v.Name).Trim(), ct);
+
+        var waiterIds = extras.Values.Where(e => e.WaiterLoginId.HasValue)
+            .Select(e => e.WaiterLoginId!.Value).Distinct().ToList();
+        var waiterNames = waiterIds.Count == 0
+            ? new Dictionary<int, string>()
+            : await _db.TLogins.AsNoTracking().Where(t => waiterIds.Contains(t.Fid))
+                .ToDictionaryAsync(t => t.Fid, t => t.Fuser ?? "", ct);
+
+        string? TitleOf(ZoneReservation r)
+        {
+            var ex = extras.GetValueOrDefault(r.Id);
+            if (ex?.ClientVisitorId is int cid && clientNames.TryGetValue(cid, out var cn) && !string.IsNullOrWhiteSpace(cn))
+                return cn;
+            if (!string.IsNullOrWhiteSpace(ex?.Title)) return ex!.Title;
+            return r.OrderId != null ? $"Касса #{r.OrderId}" : null;
+        }
+
+        foreach (var r in rows)
+        {
+            result.Rooms.Add(new BusySlotDto
+            {
+                Id = r.ZoneId,
+                Name = roomNames.GetValueOrDefault(r.ZoneId, ""),
+                TimeFrom = r.DateFrom,
+                TimeTo = r.DateTo,
+                Title = TitleOf(r)
+            });
+
+            if (extras.GetValueOrDefault(r.Id)?.WaiterLoginId is int wid)
+                result.Waiters.Add(new BusySlotDto
+                {
+                    Id = wid,
+                    Name = waiterNames.GetValueOrDefault(wid, ""),
+                    TimeFrom = r.DateFrom,
+                    TimeTo = r.DateTo,
+                    Title = TitleOf(r)
+                });
+        }
+
+        return result;
+    }
+
     // ===== helpers =====
 
     private static DateTime ResolveEnd(BookingUpsertRequest req) =>
@@ -168,6 +285,7 @@ public class BookingService : IBookingService
                 ServiceId = sel.ServiceId,
                 ServiceName = info.Name,
                 PriceSnapshot = info.Price,
+                Quantity = sel.Quantity < 1 ? 1 : sel.Quantity,
                 SortOrder = order++,
                 IsDone = sel.IsDone
             });
@@ -226,6 +344,7 @@ public class BookingService : IBookingService
                 ServiceId = s.ServiceId,
                 ServiceName = s.ServiceName,
                 Price = s.PriceSnapshot,
+                Quantity = s.Quantity < 1 ? 1 : s.Quantity,
                 IsDone = s.IsDone
             }).ToList();
 
@@ -245,7 +364,7 @@ public class BookingService : IBookingService
             WaiterVisitorId = ex?.WaiterLoginId,
             WaiterName = waiterName,
             Services = services,
-            TotalPrice = services.Sum(s => s.Price),
+            TotalPrice = services.Sum(s => s.Price * s.Quantity),
             CanEdit = true   // тестовая БД — редактируем все брони, включая кассовые
         };
     }
