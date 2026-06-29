@@ -20,4 +20,14 @@ public class CatalogController : ControllerBase
     [HttpGet("services")]
     public async Task<IActionResult> GetServices([FromQuery] int? groupId, CancellationToken ct)
         => Ok(await _catalog.GetServicesAsync(groupId, ct));
+
+    /// <summary>Тарифы на бронь комнаты (zoneId — Zones.IdZone).</summary>
+    [HttpGet("tariffs")]
+    public async Task<IActionResult> GetTariffs([FromQuery] int zoneId, CancellationToken ct)
+        => Ok(await _catalog.GetTariffsAsync(zoneId, ct));
+
+    /// <summary>Поиск билетов-услуг по названию (взрослый/детский/сопровождающий и т.п.).</summary>
+    [HttpGet("tickets")]
+    public async Task<IActionResult> SearchTickets([FromQuery] string? search, [FromQuery] int take, CancellationToken ct)
+        => Ok(await _catalog.SearchTicketsAsync(search, take, ct));
 }

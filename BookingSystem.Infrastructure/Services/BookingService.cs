@@ -80,16 +80,22 @@ public class BookingService : IBookingService
         _db.ZoneReservations.Add(reservation);
         await _db.SaveChangesAsync(ct); // получить identity ID
 
-        _db.ResExtras.Add(new BookingResExtra
+        var extra = new BookingResExtra
         {
             ReservationId = reservation.Id,
             Title = string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim(),
             ClientVisitorId = request.ClientVisitorId,
             WaiterLoginId = request.WaiterVisitorId,
             Label = request.Label,
+            CelebrantName = string.IsNullOrWhiteSpace(request.CelebrantName) ? null : request.CelebrantName.Trim(),
+            CelebrantBirthDate = request.CelebrantBirthDate,
+            IsPrepaid = request.IsPrepaid,
+            PrepaidAmount = request.IsPrepaid ? request.PrepaidAmount : null,
             CreatedAt = now,
             UpdatedAt = now
-        });
+        };
+        await ApplyTariffAsync(extra, reservation.ZoneId, reservation.DateFrom, reservation.DateTo, ct);
+        _db.ResExtras.Add(extra);
         await AddServicesAsync(reservation.Id, request.Services, ct);
         await _db.SaveChangesAsync(ct);
 
@@ -120,6 +126,11 @@ public class BookingService : IBookingService
         extra.ClientVisitorId = request.ClientVisitorId;
         extra.WaiterLoginId = request.WaiterVisitorId;
         extra.Label = request.Label;
+        extra.CelebrantName = string.IsNullOrWhiteSpace(request.CelebrantName) ? null : request.CelebrantName.Trim();
+        extra.CelebrantBirthDate = request.CelebrantBirthDate;
+        extra.IsPrepaid = request.IsPrepaid;
+        extra.PrepaidAmount = request.IsPrepaid ? request.PrepaidAmount : null;
+        await ApplyTariffAsync(extra, reservation.ZoneId, reservation.DateFrom, reservation.DateTo, ct);
         extra.UpdatedAt = DateTime.Now;
 
         var oldServices = await _db.ResServices.Where(s => s.ReservationId == id).ToListAsync(ct);
@@ -268,28 +279,83 @@ public class BookingService : IBookingService
 
     private async Task AddServicesAsync(int reservationId, List<BookingServiceSelection> selections, CancellationToken ct)
     {
-        var ids = selections.Select(s => s.ServiceId).Distinct().ToList();
-        if (ids.Count == 0) return;
+        if (selections.Count == 0) return;
 
-        var catalog = await _db.SingleServices.AsNoTracking()
-            .Where(s => ids.Contains(s.Id))
-            .ToDictionaryAsync(s => s.Id, s => new { s.Name, s.Price }, ct);
+        var serviceIds = selections.Where(s => !s.IsTicket).Select(s => s.ServiceId).Distinct().ToList();
+        var ticketIds = selections.Where(s => s.IsTicket).Select(s => s.ServiceId).Distinct().ToList();
+
+        var services = serviceIds.Count == 0
+            ? new List<SingleService>()
+            : await _db.SingleServices.AsNoTracking().Where(s => serviceIds.Contains(s.Id)).ToListAsync(ct);
+        var svcMap = services.ToDictionary(s => s.Id);
+
+        var tickets = ticketIds.Count == 0
+            ? new List<Ticket>()
+            : await _db.Tickets.AsNoTracking().Where(t => ticketIds.Contains(t.IdTicket)).ToListAsync(ct);
+        var tikMap = tickets.ToDictionary(t => t.IdTicket);
 
         var order = 0;
         foreach (var sel in selections)
         {
-            if (!catalog.TryGetValue(sel.ServiceId, out var info)) continue;
+            string name;
+            decimal price;
+            if (sel.IsTicket)
+            {
+                if (!tikMap.TryGetValue(sel.ServiceId, out var tk)) continue;
+                name = tk.NameTicket;
+                price = tk.TotalPrice;
+            }
+            else
+            {
+                if (!svcMap.TryGetValue(sel.ServiceId, out var sv)) continue;
+                name = sv.Name;
+                price = sv.Price;
+            }
+
             _db.ResServices.Add(new BookingResServiceItem
             {
                 ReservationId = reservationId,
                 ServiceId = sel.ServiceId,
-                ServiceName = info.Name,
-                PriceSnapshot = info.Price,
+                ServiceName = name,
+                PriceSnapshot = price,
                 Quantity = sel.Quantity < 1 ? 1 : sel.Quantity,
+                IsTicket = sel.IsTicket,
                 SortOrder = order++,
                 IsDone = sel.IsDone
             });
         }
+    }
+
+    /// <summary>
+    /// Автоматически подбирает тариф брони по комнате и длительности (менеджер тариф не выбирает).
+    /// Берётся самый дешёвый тариф, чья длительность покрывает бронь (округление вверх до тарифа);
+    /// если бронь длиннее всех тарифов — самый длинный.
+    /// </summary>
+    private async Task ApplyTariffAsync(BookingResExtra extra, int zoneId, DateTime from, DateTime to, CancellationToken ct)
+    {
+        extra.TariffTicketId = null;
+        extra.TariffName = null;
+        extra.TariffPrice = null;
+
+        var minutes = (int)Math.Round((to - from).TotalMinutes);
+        if (minutes <= 0) return;
+
+        var tariffs = await (from tz in _db.TicketZones.AsNoTracking()
+                             join t in _db.Tickets.AsNoTracking() on tz.IdTicket equals t.IdTicket
+                             where tz.IdZone == zoneId && tz.Reservation && t.Active
+                             select new { t.IdTicket, t.NameTicket, t.TotalPrice, tz.ReservationTime })
+                            .ToListAsync(ct);
+        if (tariffs.Count == 0) return;
+
+        var chosen = tariffs
+            .Where(x => x.ReservationTime >= minutes)
+            .OrderBy(x => x.ReservationTime).ThenBy(x => x.TotalPrice)
+            .FirstOrDefault()
+            ?? tariffs.OrderByDescending(x => x.ReservationTime).ThenBy(x => x.TotalPrice).First();
+
+        extra.TariffTicketId = chosen.IdTicket;
+        extra.TariffName = chosen.NameTicket;
+        extra.TariffPrice = chosen.TotalPrice;
     }
 
     private async Task<BookingEventDto?> GetByIdAsync(int id, CancellationToken ct)
@@ -345,7 +411,8 @@ public class BookingService : IBookingService
                 ServiceName = s.ServiceName,
                 Price = s.PriceSnapshot,
                 Quantity = s.Quantity < 1 ? 1 : s.Quantity,
-                IsDone = s.IsDone
+                IsDone = s.IsDone,
+                IsTicket = s.IsTicket
             }).ToList();
 
         return new BookingEventDto
@@ -364,7 +431,14 @@ public class BookingService : IBookingService
             WaiterVisitorId = ex?.WaiterLoginId,
             WaiterName = waiterName,
             Services = services,
-            TotalPrice = services.Sum(s => s.Price * s.Quantity),
+            TariffTicketId = ex?.TariffTicketId,
+            TariffName = ex?.TariffName,
+            TariffPrice = ex?.TariffPrice,
+            CelebrantName = ex?.CelebrantName,
+            CelebrantBirthDate = ex?.CelebrantBirthDate,
+            IsPrepaid = ex?.IsPrepaid ?? false,
+            PrepaidAmount = ex?.PrepaidAmount,
+            TotalPrice = services.Sum(s => s.Price * s.Quantity) + (ex?.TariffPrice ?? 0m),
             CanEdit = true   // тестовая БД — редактируем все брони, включая кассовые
         };
     }

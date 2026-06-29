@@ -20,6 +20,27 @@ public class BookingResExtra
 
     public BookingLabel Label { get; set; } = BookingLabel.None;
 
+    /// <summary>Выбранный тариф на бронь — Ticket.IdTicket (необязательно).</summary>
+    public int? TariffTicketId { get; set; }
+
+    /// <summary>Снапшот названия тарифа.</summary>
+    public string? TariffName { get; set; }
+
+    /// <summary>Снапшот цены тарифа.</summary>
+    public decimal? TariffPrice { get; set; }
+
+    /// <summary>Имя именинника.</summary>
+    public string? CelebrantName { get; set; }
+
+    /// <summary>Дата рождения именинника.</summary>
+    public DateTime? CelebrantBirthDate { get; set; }
+
+    /// <summary>Внесена ли предоплата.</summary>
+    public bool IsPrepaid { get; set; }
+
+    /// <summary>Сумма предоплаты.</summary>
+    public decimal? PrepaidAmount { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

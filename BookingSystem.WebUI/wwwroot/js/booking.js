@@ -1,3 +1,15 @@
+// Печать листа брони для кафе: открываем новое окно с готовым HTML и вызываем печать.
+window.bkPrint = function (html) {
+    var w = window.open('', '_blank', 'width=820,height=900');
+    if (!w) { alert('Разрешите всплывающие окна, чтобы распечатать бронь.'); return; }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    // даём окну отрисоваться, затем печать (в т.ч. «Сохранить как PDF»)
+    setTimeout(function () { try { w.print(); } catch (e) { } }, 350);
+};
+
 // Клик по дате в шапке планировщика Syncfusion -> открыть этот день (вызов в Blazor).
 window.bkSetupDateClick = function (dotNetRef) {
     window.__bkDateRef = dotNetRef;

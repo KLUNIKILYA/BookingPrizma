@@ -40,4 +40,37 @@ public class CatalogService : ICatalogService
             })
             .ToListAsync(ct);
     }
+
+    public async Task<List<TariffDto>> GetTariffsAsync(int zoneId, CancellationToken ct = default)
+    {
+        // Тарифы на бронь комнаты: связь Ticket↔Zone в TicketZone с Reservation=1,
+        // длительность = ReservationTime (мин), цена = Ticket.TotalPrice.
+        return await (from tz in _db.TicketZones.AsNoTracking()
+                      join t in _db.Tickets.AsNoTracking() on tz.IdTicket equals t.IdTicket
+                      where tz.IdZone == zoneId && tz.Reservation && t.Active
+                      orderby tz.ReservationTime, t.NameTicket
+                      select new TariffDto
+                      {
+                          TicketId = t.IdTicket,
+                          Name = t.NameTicket,
+                          Minutes = tz.ReservationTime,
+                          Price = t.TotalPrice
+                      }).ToListAsync(ct);
+    }
+
+    public async Task<List<TicketDto>> SearchTicketsAsync(string? search, int take = 20, CancellationToken ct = default)
+    {
+        if (take <= 0) take = 20;
+        var q = _db.Tickets.AsNoTracking().Where(t => t.Active);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim();
+            q = q.Where(t => EF.Functions.Like(t.NameTicket, "%" + s + "%"));
+        }
+        return await q
+            .OrderBy(t => t.NameTicket)
+            .Take(take)
+            .Select(t => new TicketDto { TicketId = t.IdTicket, Name = t.NameTicket, Price = t.TotalPrice })
+            .ToListAsync(ct);
+    }
 }

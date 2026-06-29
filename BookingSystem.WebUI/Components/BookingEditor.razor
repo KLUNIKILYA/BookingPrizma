@@ -1,4 +1,5 @@
 @inject BookingApi Api
+@inject IJSRuntime JS
 
 @if (_visible)
 {
@@ -92,7 +93,7 @@
                         <label>@(_editingId.HasValue ? "Комната" : "Комнаты")</label>
                         @if (_editingId.HasValue)
                         {
-                            <select @bind="_singleRoomId">
+                            <select @bind="_singleRoomId" @bind:after="OnRoomChanged">
                                 @foreach (var r in Resources)
                                 {
                                     var busy = RoomBusy(r.Id);
@@ -110,7 +111,7 @@
                                     var busy = RoomBusy(r.Id);
                                     <label class="bk-room-multi__item @(busy is not null ? "is-busy" : "")">
                                         <input type="checkbox" disabled="@(busy is not null)" checked="@_roomIds.Contains(r.Id)"
-                                               @onchange="e => ToggleRoom(r.Id, (bool)(e.Value ?? false))" />
+                                               @onchange="e => OnRoomToggle(r.Id, (bool)(e.Value ?? false))" />
                                         <span>@r.DisplayName</span>
                                         @if (busy is not null)
                                         {
@@ -184,8 +185,30 @@
                     </div>
 
                     <div class="bk-form-row">
-                        <label>Примечание</label>
-                        <textarea @bind="_note" placeholder="Комментарий к записи"></textarea>
+                        <label>Примечание / пожелания по празднованию</label>
+                        <textarea @bind="_note" placeholder="Комментарии клиента по празднованию"></textarea>
+                    </div>
+
+                    <p class="bk-section-title">Именинник</p>
+                    <div class="bk-row-2">
+                        <div class="bk-form-row">
+                            <label>Имя именинника</label>
+                            <input class="bk-input" @bind="_celebrantName" placeholder="необязательно" />
+                        </div>
+                        <div class="bk-form-row">
+                            <label>Дата рождения</label>
+                            <input type="date" @bind="_celebrantBirth" />
+                        </div>
+                    </div>
+
+                    <div class="bk-form-row">
+                        <label>Предоплата</label>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="bk-prepaid" @bind="_isPrepaid" />
+                            <label for="bk-prepaid" style="margin:0; font-weight:normal; white-space:nowrap;">внесена</label>
+                            <input type="number" min="0" step="0.01" class="bk-input" style="flex:1;"
+                                   placeholder="сумма" @bind="_prepaidAmount" disabled="@(!_isPrepaid)" />
+                        </div>
                     </div>
                 </div>
 
@@ -222,6 +245,24 @@
                         </div>
                     </div>
 
+                    <p class="bk-section-title" style="margin-top:14px;">Билеты (взрослый / детский / сопровождающий)</p>
+                    <div class="bk-form-row bk-autocomplete">
+                        <input class="bk-input" value="@_ticketQuery" @oninput="OnTicketInput"
+                               @onfocus="() => _showTicketSuggest = _ticketResults.Count > 0"
+                               placeholder="Поиск билета по названию…" />
+                        @if (_showTicketSuggest && _ticketResults.Count > 0)
+                        {
+                            <div class="bk-suggest">
+                                @foreach (var t in _ticketResults)
+                                {
+                                    <div class="bk-suggest__item" @onclick="() => AddTicket(t)">
+                                        @t.Name<span class="bk-suggest__phone"> · @t.Price.ToString("0.##")</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
                     <p class="bk-section-title" style="margin-top:14px;">Список выбранных услуг</p>
                     <div class="bk-grid bk-grid--sel2">
                         <div class="bk-grid__head">
@@ -237,7 +278,7 @@
                                 var idx = i;
                                 var line = _selected[idx];
                                 <div class="bk-grid__row">
-                                    <div>@line.Name</div>
+                                    <div>@(line.IsTicket ? "🎟 " : "")@line.Name</div>
                                     <div class="bk-grid__num">@line.Price.ToString("0.##")</div>
                                     <div class="bk-grid__num">
                                         <input type="number" min="1" step="1" class="bk-qty"
@@ -252,6 +293,7 @@
 
                     <div class="bk-sums">
                         <span>Длительность: <b>@DurationText</b></span>
+                        <span>Аренда: <b>@TariffSum.ToString("0.##")</b></span>
                         <span>Сумма: <b>@TotalPrice.ToString("0.##")</b></span>
                     </div>
                 </div>
@@ -261,14 +303,16 @@
             <div class="bk-modal__foot">
                 @if (_readOnly)
                 {
+                    <button type="button" class="bk-btn bk-btn--ghost" style="margin-right:auto;" @onclick="PrintAsync">🖨 Печать для кафе</button>
                     <button class="bk-btn bk-btn--ghost" @onclick="Cancel">Закрыть</button>
                 }
                 else
                 {
                     @if (_editingId.HasValue)
                     {
-                        <button class="bk-btn bk-btn--danger" style="margin-right:auto;" @onclick="DeleteAsync" disabled="@_busy">Удалить</button>
+                        <button class="bk-btn bk-btn--danger" @onclick="DeleteAsync" disabled="@_busy">Удалить</button>
                     }
+                    <button type="button" class="bk-btn bk-btn--ghost" style="margin-right:auto;" @onclick="PrintAsync">🖨 Печать для кафе</button>
                     <button class="bk-btn bk-btn--ghost" @onclick="Cancel" disabled="@_busy">Отмена</button>
                     <button class="bk-btn" @onclick="SaveAsync" disabled="@_busy">Сохранить</button>
                 }
@@ -304,16 +348,45 @@
         set { _roomIds.Clear(); if (value > 0) _roomIds.Add(value); }
     }
 
-    private void ToggleRoom(int id, bool on)
+    private async Task OnRoomToggle(int id, bool on)
     {
         if (on) _roomIds.Add(id); else _roomIds.Remove(id);
+        await ReloadTariffsAsync();
     }
+
+    private async Task OnRoomChanged()
+    {
+        await ReloadTariffsAsync();
+        await RefreshAvailabilityAsync();
+    }
+
+    private List<int> SelectedRooms() =>
+        _editingId.HasValue
+            ? (_singleRoomId > 0 ? new List<int> { _singleRoomId } : new List<int>())
+            : _roomIds.ToList();
+
+    /// <summary>Грузит тарифы по всем выбранным комнатам (для авто-расчёта аренды). Менеджер тариф не выбирает.</summary>
+    private async Task ReloadTariffsAsync()
+    {
+        var map = new Dictionary<int, List<TariffDto>>();
+        foreach (var rid in SelectedRooms())
+            map[rid] = await Api.GetTariffsAsync(rid);
+        _tariffsByRoom = map;
+        StateHasChanged();
+    }
+
     private DateTime _date = DateTime.Today;
     private string _time = "10:00";       // "HH:mm", 24ч
     private DateTime _endDate = DateTime.Today;
     private string _endTime = "11:00";    // "HH:mm", 24ч
     private int _labelValue;
     private string? _note;
+
+    // именинник + предоплата
+    private string? _celebrantName;
+    private DateTime? _celebrantBirth;
+    private bool _isPrepaid;
+    private decimal _prepaidAmount;
 
     // клиент
     private int? _clientId;
@@ -333,6 +406,14 @@
     private List<ServiceDto> _available = new();
     private readonly List<SelectedLine> _selected = new();
 
+    // тарифы аренды по каждой выбранной комнате — для авто-расчёта (менеджер их не выбирает).
+    private Dictionary<int, List<TariffDto>> _tariffsByRoom = new();
+
+    // поиск билетов-услуг (взрослый/детский/сопровождающий)
+    private string _ticketQuery = "";
+    private List<TicketDto> _ticketResults = new();
+    private bool _showTicketSuggest;
+
     // занятость на выбранный интервал (для блокировки комнат/официантов)
     private Dictionary<int, BusySlotDto> _busyRooms = new();
     private Dictionary<int, BusySlotDto> _busyWaiters = new();
@@ -342,7 +423,35 @@
 
     private string HeadTitle => _readOnly ? "Просмотр брони" : (_editingId.HasValue ? "Редактирование записи" : "Новая запись");
 
-    private decimal TotalPrice => _selected.Sum(s => s.Price * Math.Max(1, s.Quantity));
+    /// <summary>Длительность брони в минутах (по выбранному времени).</summary>
+    private int BookingMinutes => (int)Math.Max(0, (EndDateTime - StartDateTime).TotalMinutes);
+
+    /// <summary>Авто-цена аренды комнаты: самый дешёвый тариф, чья длительность покрывает бронь
+    /// (округление вверх до тарифа); если бронь длиннее всех тарифов — самый длинный.</summary>
+    private static decimal AutoTariffPrice(List<TariffDto> tariffs, int minutes)
+    {
+        if (minutes <= 0 || tariffs.Count == 0) return 0m;
+        var cover = tariffs.Where(t => t.Minutes >= minutes)
+                           .OrderBy(t => t.Minutes).ThenBy(t => t.Price).FirstOrDefault();
+        return cover?.Price
+            ?? tariffs.OrderByDescending(t => t.Minutes).ThenBy(t => t.Price).First().Price;
+    }
+
+    /// <summary>Сумма аренды по всем выбранным комнатам (авто по длительности брони).</summary>
+    private decimal TariffSum
+    {
+        get
+        {
+            var mins = BookingMinutes;
+            if (mins <= 0) return 0m;
+            decimal sum = 0m;
+            foreach (var rid in SelectedRooms())
+                if (_tariffsByRoom.TryGetValue(rid, out var list))
+                    sum += AutoTariffPrice(list, mins);
+            return sum;
+        }
+    }
+    private decimal TotalPrice => _selected.Sum(s => s.Price * Math.Max(1, s.Quantity)) + TariffSum;
 
     private void ToggleFullscreen() => _fullscreen = !_fullscreen;
 
@@ -389,6 +498,7 @@
     {
         InitCommon(new[] { resourceId }, start, start.AddHours(1));
         await ReloadAvailableAsync();
+        await ReloadTariffsAsync();
         await RefreshAvailabilityAsync();
         StateHasChanged();
     }
@@ -399,6 +509,7 @@
         if (end <= start) end = start.AddHours(1);
         InitCommon(resourceIds, start, end);
         await ReloadAvailableAsync();
+        await ReloadTariffsAsync();
         await RefreshAvailabilityAsync();
         StateHasChanged();
     }
@@ -418,10 +529,13 @@
         _endTime = end.ToString("HH:mm");
         _labelValue = 0;
         _note = null;
+        _celebrantName = null; _celebrantBirth = null; _isPrepaid = false; _prepaidAmount = 0;
         _clientId = null; _clientName = ""; _clientQuery = ""; _suggestions.Clear(); _showSuggest = false;
         _newClientMode = false; _ncSurname = ""; _ncName = ""; _ncPhone = "";
         _groupId = 0;
         _selected.Clear();
+        _tariffsByRoom = new();
+        _ticketQuery = ""; _ticketResults.Clear(); _showTicketSuggest = false;
         _busyRooms.Clear();
         _busyWaiters.Clear();
         _error = null;
@@ -442,6 +556,10 @@
         _endTime = dto.TimeTo.ToString("HH:mm");
         _labelValue = (int)dto.Label;
         _note = dto.Note;
+        _celebrantName = dto.CelebrantName;
+        _celebrantBirth = dto.CelebrantBirthDate;
+        _isPrepaid = dto.IsPrepaid;
+        _prepaidAmount = dto.PrepaidAmount ?? 0;
         _clientId = dto.ClientVisitorId;
         _clientName = dto.ClientName ?? "";
         _clientQuery = dto.ClientName ?? "";
@@ -453,13 +571,15 @@
             _selected.Add(new SelectedLine
             {
                 ServiceId = s.ServiceId, Name = s.ServiceName, Price = s.Price,
-                Quantity = s.Quantity < 1 ? 1 : s.Quantity, IsDone = s.IsDone
+                Quantity = s.Quantity < 1 ? 1 : s.Quantity, IsDone = s.IsDone, IsTicket = s.IsTicket
             });
+        _ticketQuery = ""; _ticketResults.Clear(); _showTicketSuggest = false;
         _error = null;
         _visible = true;
         _busyRooms.Clear();
         _busyWaiters.Clear();
         await ReloadAvailableAsync();
+        await ReloadTariffsAsync();
         await RefreshAvailabilityAsync();
         StateHasChanged();
     }
@@ -502,6 +622,31 @@
     {
         if (_readOnly) return;
         _selected.Add(new SelectedLine { ServiceId = s.Id, Name = s.Name, Price = s.Price, IsDone = false });
+    }
+
+    private async Task OnTicketInput(ChangeEventArgs e)
+    {
+        _ticketQuery = e.Value?.ToString() ?? "";
+        var q = _ticketQuery.Trim();
+        if (q.Length >= 2)
+        {
+            _ticketResults = await Api.SearchTicketsAsync(q, 8);
+            _showTicketSuggest = true;
+        }
+        else
+        {
+            _ticketResults.Clear();
+            _showTicketSuggest = false;
+        }
+    }
+
+    private void AddTicket(TicketDto t)
+    {
+        if (_readOnly) return;
+        _selected.Add(new SelectedLine { ServiceId = t.TicketId, Name = t.Name, Price = t.Price, IsTicket = true, IsDone = false });
+        _ticketQuery = "";
+        _ticketResults.Clear();
+        _showTicketSuggest = false;
     }
 
     private void RemoveAt(int idx)
@@ -591,7 +736,11 @@
                 WaiterVisitorId = _waiterId > 0 ? _waiterId : null,
                 Label = (BookingLabel)_labelValue,
                 Note = _note,
-                Services = _selected.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, Quantity = s.Quantity, IsDone = s.IsDone }).ToList()
+                CelebrantName = string.IsNullOrWhiteSpace(_celebrantName) ? null : _celebrantName.Trim(),
+                CelebrantBirthDate = _celebrantBirth,
+                IsPrepaid = _isPrepaid,
+                PrepaidAmount = _isPrepaid ? _prepaidAmount : (decimal?)null,
+                Services = _selected.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, Quantity = s.Quantity, IsDone = s.IsDone, IsTicket = s.IsTicket }).ToList()
             };
 
             if (_editingId.HasValue)
@@ -661,6 +810,88 @@
 
     private void Cancel() => _visible = false;
 
+    /// <summary>Печать листа брони для кафе: формируем HTML по текущим данным окна и открываем окно печати.</summary>
+    private async Task PrintAsync()
+    {
+        await JS.InvokeVoidAsync("bkPrint", BuildPrintHtml());
+    }
+
+    private string BuildPrintHtml()
+    {
+        static string E(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+        var sb = new System.Text.StringBuilder();
+
+        var rooms = string.Join(", ", Resources.Where(r => _roomIds.Contains(r.Id)).Select(r => r.DisplayName));
+        if (string.IsNullOrWhiteSpace(rooms)) rooms = "—";
+        var clientName = !string.IsNullOrWhiteSpace(_clientName) ? _clientName
+            : (!string.IsNullOrWhiteSpace(_title) ? _title : "—");
+        var waiterName = Waiters.FirstOrDefault(w => w.Id == _waiterId)?.FullName;
+        var labelName = BookingLabelInfo.Name((BookingLabel)_labelValue);
+
+        sb.Append("<!DOCTYPE html><html lang='ru'><head><meta charset='utf-8'><title>Бронь для кафе</title><style>");
+        sb.Append("*{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:24px;font-size:14px}");
+        sb.Append("h1{font-size:20px;margin:0 0 4px}.muted{color:#666;font-size:12px;margin:0 0 16px}");
+        sb.Append(".sec{font-weight:600;font-size:13px;text-transform:uppercase;color:#445;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:3px}");
+        sb.Append(".row{display:flex;margin:3px 0}.row .k{width:210px;color:#555}.row .v{font-weight:600}");
+        sb.Append("table{width:100%;border-collapse:collapse;margin-top:6px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f2f4f8;font-size:12px}td.n,th.n{text-align:right}");
+        sb.Append(".tot{margin-top:10px;text-align:right;font-size:15px}.tot b{font-size:18px}");
+        sb.Append(".note{white-space:pre-wrap;border:1px solid #ccc;padding:8px;border-radius:4px;background:#fafafa}");
+        sb.Append("@media print{body{margin:0}}</style></head><body>");
+
+        sb.Append("<h1>Бронь — лист для кафе</h1>");
+        sb.Append($"<p class='muted'>Распечатано: {E(DateTime.Now.ToString("dd.MM.yyyy HH:mm"))}</p>");
+
+        sb.Append("<div class='sec'>Бронирование</div>");
+        sb.Append($"<div class='row'><div class='k'>Комната(ы)</div><div class='v'>{E(rooms)}</div></div>");
+        sb.Append($"<div class='row'><div class='k'>Дата и время</div><div class='v'>{E(StartDateTime.ToString("dd.MM.yyyy HH:mm"))} – {E(EndDateTime.ToString("dd.MM.yyyy HH:mm"))}</div></div>");
+        sb.Append($"<div class='row'><div class='k'>Длительность</div><div class='v'>{E(DurationText)}</div></div>");
+        sb.Append($"<div class='row'><div class='k'>Метка</div><div class='v'>{E(labelName)}</div></div>");
+
+        sb.Append("<div class='sec'>Клиент</div>");
+        sb.Append($"<div class='row'><div class='k'>Клиент</div><div class='v'>{E(clientName)}</div></div>");
+        if (!string.IsNullOrWhiteSpace(waiterName))
+            sb.Append($"<div class='row'><div class='k'>Официант</div><div class='v'>{E(waiterName)}</div></div>");
+
+        if (!string.IsNullOrWhiteSpace(_celebrantName) || _celebrantBirth.HasValue)
+        {
+            sb.Append("<div class='sec'>Именинник</div>");
+            sb.Append($"<div class='row'><div class='k'>Имя</div><div class='v'>{E(string.IsNullOrWhiteSpace(_celebrantName) ? "—" : _celebrantName)}</div></div>");
+            sb.Append($"<div class='row'><div class='k'>Дата рождения</div><div class='v'>{(_celebrantBirth.HasValue ? E(_celebrantBirth.Value.ToString("dd.MM.yyyy")) : "—")}</div></div>");
+        }
+
+        sb.Append("<div class='sec'>Предзаказ по меню</div>");
+        if (_selected.Count == 0)
+            sb.Append("<p class='muted'>Позиции не выбраны.</p>");
+        else
+        {
+            sb.Append("<table><thead><tr><th>Наименование</th><th class='n'>Цена</th><th class='n'>Кол-во</th><th class='n'>Сумма</th></tr></thead><tbody>");
+            foreach (var s in _selected)
+            {
+                var name = (s.IsTicket ? "Билет: " : "") + s.Name;
+                var qty = Math.Max(1, s.Quantity);
+                sb.Append($"<tr><td>{E(name)}</td><td class='n'>{s.Price.ToString("0.##")}</td><td class='n'>{qty}</td><td class='n'>{(s.Price * qty).ToString("0.##")}</td></tr>");
+            }
+            sb.Append("</tbody></table>");
+        }
+
+        sb.Append("<div class='sec'>Оплата</div>");
+        sb.Append($"<div class='row'><div class='k'>Аренда комнат</div><div class='v'>{TariffSum.ToString("0.##")}</div></div>");
+        sb.Append($"<div class='row'><div class='k'>Предоплата</div><div class='v'>{(_isPrepaid ? $"внесена · {_prepaidAmount.ToString("0.##")}" : "нет")}</div></div>");
+        sb.Append($"<div class='tot'>Итого: <b>{TotalPrice.ToString("0.##")}</b>");
+        if (_isPrepaid)
+            sb.Append($" &nbsp; · &nbsp; К доплате: <b>{(TotalPrice - _prepaidAmount).ToString("0.##")}</b>");
+        sb.Append("</div>");
+
+        if (!string.IsNullOrWhiteSpace(_note))
+        {
+            sb.Append("<div class='sec'>Комментарии по празднованию</div>");
+            sb.Append($"<div class='note'>{E(_note)}</div>");
+        }
+
+        sb.Append("</body></html>");
+        return sb.ToString();
+    }
+
     private class SelectedLine
     {
         public int ServiceId { get; set; }
@@ -668,5 +899,6 @@
         public decimal Price { get; set; }
         public int Quantity { get; set; } = 1;
         public bool IsDone { get; set; }
+        public bool IsTicket { get; set; }
     }
 }

@@ -12,6 +12,8 @@ public class BookingServiceLineDto
     /// <summary>Количество (по умолчанию 1).</summary>
     public int Quantity { get; set; } = 1;
     public bool IsDone { get; set; }
+    /// <summary>true — билет из dbo.Ticket; false — услуга из dbo.SingleService.</summary>
+    public bool IsTicket { get; set; }
 }
 
 /// <summary>Запись бронирования для планировщика (read-модель). Соответствует строке ZoneReservation.</summary>
@@ -38,6 +40,19 @@ public class BookingEventDto
 
     public List<BookingServiceLineDto> Services { get; set; } = new();
     public decimal TotalPrice { get; set; }
+
+    /// <summary>Выбранный тариф на бронь (Ticket.IdTicket), если задан.</summary>
+    public int? TariffTicketId { get; set; }
+    public string? TariffName { get; set; }
+    public decimal? TariffPrice { get; set; }
+
+    /// <summary>Именинник: имя и дата рождения.</summary>
+    public string? CelebrantName { get; set; }
+    public DateTime? CelebrantBirthDate { get; set; }
+
+    /// <summary>Предоплата: внесена ли и на какую сумму.</summary>
+    public bool IsPrepaid { get; set; }
+    public decimal? PrepaidAmount { get; set; }
 
     /// <summary>Можно ли редактировать/удалять (своя бронь, без OrderID). Кассовые брони — только чтение.</summary>
     public bool CanEdit { get; set; }
@@ -78,6 +93,8 @@ public class BookingServiceSelection
     /// <summary>Количество (по умолчанию 1).</summary>
     public int Quantity { get; set; } = 1;
     public bool IsDone { get; set; }
+    /// <summary>true — билет из dbo.Ticket; false — услуга из dbo.SingleService.</summary>
+    public bool IsTicket { get; set; }
 }
 
 /// <summary>Запрос на создание/обновление записи (= строка ZoneReservation + companion).</summary>
@@ -95,6 +112,14 @@ public class BookingUpsertRequest
     public int? WaiterVisitorId { get; set; }     // = TLogins.FID
     public BookingLabel Label { get; set; } = BookingLabel.None;
     public string? Note { get; set; }             // = Info
+
+    /// <summary>Именинник: имя и дата рождения.</summary>
+    public string? CelebrantName { get; set; }
+    public DateTime? CelebrantBirthDate { get; set; }
+
+    /// <summary>Предоплата: внесена ли и на какую сумму.</summary>
+    public bool IsPrepaid { get; set; }
+    public decimal? PrepaidAmount { get; set; }
 
     public List<BookingServiceSelection> Services { get; set; } = new();
 }

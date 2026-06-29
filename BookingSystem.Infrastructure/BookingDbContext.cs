@@ -25,6 +25,8 @@ public class BookingDbContext : DbContext
     public DbSet<SingleService> SingleServices => Set<SingleService>();
     public DbSet<SingleServiceGroup> SingleServiceGroups => Set<SingleServiceGroup>();
     public DbSet<CashboxVisitor> CashboxVisitors => Set<CashboxVisitor>();
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<TicketZone> TicketZones => Set<TicketZone>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -36,6 +38,12 @@ public class BookingDbContext : DbContext
             e.Property(x => x.ReservationId).ValueGeneratedNever(); // = ZoneReservation.ID
             e.Property(x => x.Title).HasMaxLength(300);
             e.Property(x => x.Label).HasConversion<int>();
+            e.Property(x => x.TariffName).HasMaxLength(300);
+            e.Property(x => x.TariffPrice).HasColumnType("numeric(18,2)");
+            e.Property(x => x.CelebrantName).HasMaxLength(200);
+            e.Property(x => x.CelebrantBirthDate).HasColumnType("date");
+            e.Property(x => x.IsPrepaid).HasDefaultValue(false);
+            e.Property(x => x.PrepaidAmount).HasColumnType("numeric(18,2)");
             e.HasMany(x => x.Services)
                 .WithOne(s => s.Extra!)
                 .HasForeignKey(s => s.ReservationId)
@@ -50,6 +58,7 @@ public class BookingDbContext : DbContext
             e.Property(x => x.ServiceName).HasMaxLength(300).IsRequired();
             e.Property(x => x.PriceSnapshot).HasColumnType("numeric(18,2)");
             e.Property(x => x.Quantity).HasDefaultValue(1);
+            e.Property(x => x.IsTicket).HasDefaultValue(false);
             e.HasIndex(x => x.ReservationId);
         });
 
@@ -109,6 +118,22 @@ public class BookingDbContext : DbContext
             });
             e.HasKey(x => x.IdVisitor);
             e.Property(x => x.IdVisitor).ValueGeneratedOnAdd();
+        });
+
+        // ---------- Ticket (read-only): тарифы на бронь + билеты-услуги ----------
+        b.Entity<Ticket>(e =>
+        {
+            e.ToTable("Ticket", t => t.ExcludeFromMigrations());
+            e.HasKey(x => x.IdTicket);
+            e.Property(x => x.TotalPrice).HasColumnType("numeric(18,2)");
+            e.Property(x => x.OnePrice).HasColumnType("numeric(18,2)");
+        });
+
+        // ---------- TicketZone (read-only): связь билет↔зона + длительность тарифа ----------
+        b.Entity<TicketZone>(e =>
+        {
+            e.ToTable("TicketZone", t => t.ExcludeFromMigrations());
+            e.HasKey(x => new { x.IdTicket, x.IdZone });
         });
     }
 }

@@ -17,6 +17,25 @@ public class ServiceDto
     public int GroupId { get; set; }
 }
 
+/// <summary>Тариф на бронь комнаты: билет из dbo.Ticket + длительность из dbo.TicketZone.</summary>
+public class TariffDto
+{
+    public int TicketId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    /// <summary>Длительность брони в минутах (TicketZone.ReservationTime).</summary>
+    public int Minutes { get; set; }
+    /// <summary>Цена тарифа (Ticket.TotalPrice).</summary>
+    public decimal Price { get; set; }
+}
+
+/// <summary>Билет-услуга (взрослый/детский/сопровождающий) — позиция с ценой, без времени.</summary>
+public class TicketDto
+{
+    public int TicketId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public decimal Price { get; set; }
+}
+
 /// <summary>Ресурс — комната (колонка планировщика / пункт фильтра «Комната»).</summary>
 public class ResourceDto
 {

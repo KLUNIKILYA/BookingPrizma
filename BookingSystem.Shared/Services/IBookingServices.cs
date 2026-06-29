@@ -9,6 +9,12 @@ public interface ICatalogService
 
     /// <summary>Услуги группы; groupId = null → полный список бронируемых услуг.</summary>
     Task<List<ServiceDto>> GetServicesAsync(int? groupId, CancellationToken ct = default);
+
+    /// <summary>Тарифы на бронь конкретной комнаты (Ticket+TicketZone, Reservation=1).</summary>
+    Task<List<TariffDto>> GetTariffsAsync(int zoneId, CancellationToken ct = default);
+
+    /// <summary>Поиск билетов-услуг по названию (взрослый/детский/сопровождающий и т.п.).</summary>
+    Task<List<TicketDto>> SearchTicketsAsync(string? search, int take = 20, CancellationToken ct = default);
 }
 
 /// <summary>Ресурсы (комнаты/столики) для колонок планировщика и список официантов.</summary>

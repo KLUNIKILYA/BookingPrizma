@@ -10,7 +10,7 @@ public class BookingResServiceItem
     /// <summary>= ZoneReservation.ID.</summary>
     public int ReservationId { get; set; }
 
-    /// <summary>Ссылка на услугу SingleService.ID.</summary>
+    /// <summary>SingleService.ID (услуга) либо Ticket.IdTicket (билет) — см. <see cref="IsTicket"/>.</summary>
     public int ServiceId { get; set; }
 
     /// <summary>Снапшот названия услуги.</summary>
@@ -20,6 +20,12 @@ public class BookingResServiceItem
 
     /// <summary>Количество услуги (по умолчанию 1). Сумма позиции = PriceSnapshot * Quantity.</summary>
     public int Quantity { get; set; } = 1;
+
+    /// <summary>
+    /// true — позиция-билет из dbo.Ticket (взрослый/детский/сопровождающий);
+    /// false — услуга из dbo.SingleService.
+    /// </summary>
+    public bool IsTicket { get; set; }
 
     public int SortOrder { get; set; }
 

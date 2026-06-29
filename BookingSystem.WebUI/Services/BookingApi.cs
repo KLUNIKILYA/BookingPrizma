@@ -41,6 +41,15 @@ public class BookingApi
         return await _http.GetFromJsonAsync<List<ServiceDto>>(url) ?? new();
     }
 
+    /// <summary>Тарифы на бронь конкретной комнаты.</summary>
+    public async Task<List<TariffDto>> GetTariffsAsync(int zoneId) =>
+        await _http.GetFromJsonAsync<List<TariffDto>>($"api/catalog/tariffs?zoneId={zoneId}") ?? new();
+
+    /// <summary>Поиск билетов-услуг по названию.</summary>
+    public async Task<List<TicketDto>> SearchTicketsAsync(string search, int take = 20) =>
+        await _http.GetFromJsonAsync<List<TicketDto>>(
+            $"api/catalog/tickets?search={Uri.EscapeDataString(search)}&take={take}") ?? new();
+
     public async Task<List<ClientDto>> SearchClientsAsync(string search, int take = 20) =>
         await _http.GetFromJsonAsync<List<ClientDto>>(
             $"api/clients?search={Uri.EscapeDataString(search)}&take={take}") ?? new();
