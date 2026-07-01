@@ -14,6 +14,19 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <!-- Отчёты броней (PDF) через FastReport OpenSource -->
+    <PackageReference Include="FastReport.OpenSource" Version="2026.2.3" />
+    <PackageReference Include="FastReport.OpenSource.Export.PdfSimple" Version="2026.2.3" />
+  </ItemGroup>
+
+  <!-- Шаблоны отчётов копируем в вывод (правятся без пересборки) -->
+  <ItemGroup>
+    <None Update="Reports\**\*.frx" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- FastReport рисует через System.Drawing.Common; на Linux нужен этот флаг + системный libgdiplus -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.Drawing.EnableUnixSupport" Value="true" Trim="false" />
   </ItemGroup>
 
   <ItemGroup>

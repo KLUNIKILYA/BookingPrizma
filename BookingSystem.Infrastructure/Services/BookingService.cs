@@ -358,7 +358,7 @@ public class BookingService : IBookingService
         extra.TariffPrice = chosen.TotalPrice;
     }
 
-    private async Task<BookingEventDto?> GetByIdAsync(int id, CancellationToken ct)
+    public async Task<BookingEventDto?> GetByIdAsync(int id, CancellationToken ct = default)
     {
         var r = await _db.ZoneReservations.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
         if (r is null) return null;

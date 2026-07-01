@@ -20,7 +20,7 @@ public static class SqlServerConnectionFactory
         var host = configuration["SQL_HOST"] ?? "86.57.242.48";
         var port = configuration["SQL_PORT"] ?? "64978";
         var instance = configuration["SQL_INSTANCE"] ?? "SQLEXPRESS";
-        var database = configuration["SQL_DATABASE"] ?? "PPS_Prizma";
+        var database = configuration["SQL_DATABASE"] ?? "PPS_Prizma_2026_07_01";
         var user = configuration["SQL_USER"] ?? "sa";
         var password = configuration["SQL_PASSWORD"]
             ?? throw new InvalidOperationException("SQL_PASSWORD не задан (env или appsettings).");

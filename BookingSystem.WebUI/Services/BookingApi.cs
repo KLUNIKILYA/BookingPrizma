@@ -95,6 +95,10 @@ public class BookingApi
     public async Task<bool> DeleteAsync(int id) =>
         (await _http.DeleteAsync($"api/bookings/{id}")).IsSuccessStatusCode;
 
+    /// <summary>Абсолютный URL PDF-отчёта брони (для открытия в новой вкладке).</summary>
+    public string ReportUrl(int id) =>
+        new Uri(_http.BaseAddress!, $"api/bookings/{id}/report").ToString();
+
     /// <summary>Занятость комнат и официантов на интервале (для блокировки в окне).</summary>
     public async Task<AvailabilityDto> GetAvailabilityAsync(DateTime from, DateTime to, int? excludeId)
     {

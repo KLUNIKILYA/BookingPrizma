@@ -1,6 +1,7 @@
 using BookingSystem.Shared;
 using BookingSystem.Shared.Dtos;
 using BookingSystem.Shared.Services;
+using BookingSystem.WebApi.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BookingSystem.WebApi.Controllers;
@@ -12,6 +13,25 @@ public class BookingsController : ControllerBase
     private readonly IBookingService _bookings;
 
     public BookingsController(IBookingService bookings) => _bookings = bookings;
+
+    /// <summary>PDF-отчёт (слип) по брони для печати в кафе. Открывается в браузере (inline).</summary>
+    [HttpGet("{id:int}/report")]
+    public async Task<IActionResult> Report(
+        int id,
+        [FromServices] BookingReportService reports,
+        [FromServices] IResourceService resources,
+        CancellationToken ct)
+    {
+        var dto = await _bookings.GetByIdAsync(id, ct);
+        if (dto is null) return NotFound();
+
+        var roomName = (await resources.GetResourcesAsync(ct))
+            .FirstOrDefault(r => r.Id == dto.ResourceId)?.DisplayName ?? $"#{dto.ResourceId}";
+
+        var pdf = reports.BuildBookingPdf(dto, roomName);
+        Response.Headers.ContentDisposition = $"inline; filename=booking-{id}.pdf";
+        return File(pdf, "application/pdf");
+    }
 
     /// <summary>Брони в диапазоне [from; to) для планировщика.</summary>
     [HttpGet]

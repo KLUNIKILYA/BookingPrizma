@@ -1,10 +1,10 @@
 using BookingSystem.Infrastructure;
 using BookingSystem.Infrastructure.Configuration;
+using BookingSystem.WebApi.Services;
 using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Строка подключения к PPS_Prizma: из SQL_HOST/PORT/INSTANCE/DATABASE/USER/PASSWORD (env / appsettings).
 var connectionString = SqlServerConnectionFactory.Build(builder.Configuration);
 
 var sqlInfo = new SqlConnectionStringBuilder(connectionString);
@@ -21,6 +21,8 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowAll", policy =>
         policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
 });
+
+builder.Services.AddScoped<BookingReportService>();
 
 var app = builder.Build();
 

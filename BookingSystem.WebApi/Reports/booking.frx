@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Report ScriptLanguage="CSharp" ReportInfo.Created="07/01/2026 12:53:48" ReportInfo.Modified="07/01/2026 12:53:48" ReportInfo.CreatorVersion="2026.2.3.0">
+  <Dictionary>
+    <TableDataSource Name="Services" ReferenceName="Services" DataType="System.Int32" Enabled="true">
+      <Column Name="Name" DataType="System.String"/>
+      <Column Name="Qty" DataType="System.Int32"/>
+      <Column Name="Price" DataType="System.Decimal"/>
+      <Column Name="Sum" DataType="System.Decimal"/>
+    </TableDataSource>
+    <Parameter Name="Number" DataType="System.String" AsString=""/>
+    <Parameter Name="Room" DataType="System.String" AsString=""/>
+    <Parameter Name="Period" DataType="System.String" AsString=""/>
+    <Parameter Name="Client" DataType="System.String" AsString=""/>
+    <Parameter Name="Waiter" DataType="System.String" AsString=""/>
+    <Parameter Name="Celebrant" DataType="System.String" AsString=""/>
+    <Parameter Name="Tariff" DataType="System.String" AsString=""/>
+    <Parameter Name="Prepaid" DataType="System.String" AsString=""/>
+    <Parameter Name="Total" DataType="System.String" AsString=""/>
+  </Dictionary>
+  <ReportPage Name="Page1" Watermark.Font="Arial, 60pt">
+    <ReportTitleBand Height="158.76">
+      <TextObject Width="680.4" Height="34.02" Text="БРОНИРОВАНИЕ №[Number]" Font="Arial, 16pt, style=Bold"/>
+      <TextObject Top="41.58" Width="680.4" Height="113.4" Text="Комната: [Room]        Период: [Period]&#10;Клиент: [Client]        Официант: [Waiter]&#10;Именинник: [Celebrant]        Тариф: [Tariff]" Font="Arial, 11pt"/>
+    </ReportTitleBand>
+    <PageHeaderBand Height="26.46">
+      <TextObject Width="378" Height="22.68" Text="Услуга" Font="Arial, 10pt, style=Bold"/>
+      <TextObject Left="378" Width="94.5" Height="22.68" Text="Кол-во" HorzAlign="Right" Font="Arial, 10pt, style=Bold"/>
+      <TextObject Left="472.5" Width="94.5" Height="22.68" Text="Цена" HorzAlign="Right" Font="Arial, 10pt, style=Bold"/>
+      <TextObject Left="567" Width="113.4" Height="22.68" Text="Сумма" HorzAlign="Right" Font="Arial, 10pt, style=Bold"/>
+    </PageHeaderBand>
+    <DataBand Height="22.68" DataSource="Services">
+      <TextObject Width="378" Height="22.68" Text="[Services.Name]" Font="Arial, 10pt"/>
+      <TextObject Left="378" Width="94.5" Height="22.68" Text="[Services.Qty]" HorzAlign="Right" Font="Arial, 10pt"/>
+      <TextObject Left="472.5" Width="94.5" Height="22.68" Text="[Services.Price]" HorzAlign="Right" Font="Arial, 10pt"/>
+      <TextObject Left="567" Width="113.4" Height="22.68" Text="[Services.Sum]" HorzAlign="Right" Font="Arial, 10pt"/>
+    </DataBand>
+    <ReportSummaryBand Height="60.48">
+      <TextObject Left="378" Top="3.78" Width="302.4" Height="22.68" Text="Итого: [Total]" HorzAlign="Right" Font="Arial, 11pt, style=Bold"/>
+      <TextObject Left="378" Top="30.24" Width="302.4" Height="22.68" Text="Предоплата: [Prepaid]" HorzAlign="Right" Font="Arial, 11pt"/>
+    </ReportSummaryBand>
+  </ReportPage>
+</Report>

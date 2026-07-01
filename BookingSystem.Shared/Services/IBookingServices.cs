@@ -41,6 +41,9 @@ public interface IBookingService
     Task<List<BookingEventDto>> GetBookingsAsync(
         DateTime from, DateTime to, int? resourceId, int? groupId, CancellationToken ct = default);
 
+    /// <summary>Одна бронь по id (для отчёта/печати). null — не найдена.</summary>
+    Task<BookingEventDto?> GetByIdAsync(int id, CancellationToken ct = default);
+
     Task<BookingEventDto> CreateAsync(BookingUpsertRequest request, CancellationToken ct = default);
 
     Task<BookingEventDto?> UpdateAsync(int id, BookingUpsertRequest request, CancellationToken ct = default);

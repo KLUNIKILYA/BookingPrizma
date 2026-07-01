@@ -813,7 +813,13 @@
     /// <summary>Печать листа брони для кафе: формируем HTML по текущим данным окна и открываем окно печати.</summary>
     private async Task PrintAsync()
     {
-        await JS.InvokeVoidAsync("bkPrint", BuildPrintHtml());
+        if (_editingId is not int id)
+        {
+            await JS.InvokeVoidAsync("alert", "Сначала сохраните бронь — печать формируется из сохранённых данных.");
+            return;
+        }
+        // PDF-отчёт FastReport открывается в новой вкладке (браузер сам покажет/распечатает).
+        await JS.InvokeVoidAsync("open", Api.ReportUrl(id), "_blank");
     }
 
     private string BuildPrintHtml()
