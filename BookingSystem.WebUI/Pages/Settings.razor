@@ -1,0 +1,94 @@
+@page "/settings"
+@inject BookingApi Api
+
+<div class="set-wrap">
+    <h1 class="set-title">Настройки</h1>
+
+    <section class="set-card">
+        <div class="set-card__head">
+            <h2>Метки-статусы</h2>
+        </div>
+
+        @if (_labelsMsg is not null)
+        {
+            <div class="set-msg">@_labelsMsg</div>
+        }
+
+        <div class="set-labels">
+            <div class="set-labels__head">
+                <div>Цвет</div><div>Название</div><div></div>
+            </div>
+            @foreach (var l in _labels)
+            {
+                <div class="set-labels__row">
+                    <div><input type="color" class="set-color" @bind="l.Color" /></div>
+                    <div><input class="set-input" @bind="l.Name" /></div>
+                    <div class="set-labels__actions">
+                        <button class="bk-btn bk-btn--ghost" @onclick="() => SaveLabelAsync(l)" disabled="@_busy">Сохранить</button>
+                        <button class="bk-icon-btn" title="Удалить (скрыть)" @onclick="() => DeleteLabelAsync(l)" disabled="@_busy">🗑</button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="set-add">
+            <input type="color" class="set-color" @bind="_newColor" />
+            <input class="set-input" placeholder="Название новой метки" @bind="_newName" />
+            <button class="bk-btn" @onclick="AddLabelAsync" disabled="@_busy">+ Добавить метку</button>
+        </div>
+    </section>
+</div>
+
+@code {
+    private bool _busy;
+    private string? _labelsMsg;
+    private List<LabelDto> _labels = new();
+    private string _newName = "";
+    private string _newColor = "#4F86C6";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _labels = await Api.GetLabelsAsync();
+    }
+
+    private async Task SaveLabelAsync(LabelDto l)
+    {
+        if (string.IsNullOrWhiteSpace(l.Name)) { _labelsMsg = "Название не может быть пустым."; return; }
+        _busy = true; _labelsMsg = null;
+        try
+        {
+            var res = await Api.UpdateLabelAsync(l.Id, new LabelUpsertRequest { Name = l.Name, Color = l.Color });
+            _labelsMsg = res is not null ? $"Метка «{l.Name}» сохранена." : "Не удалось сохранить.";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task AddLabelAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName)) { _labelsMsg = "Укажите название новой метки."; return; }
+        _busy = true; _labelsMsg = null;
+        try
+        {
+            var created = await Api.CreateLabelAsync(new LabelUpsertRequest { Name = _newName.Trim(), Color = _newColor });
+            if (created is not null)
+            {
+                _labels.Add(created);
+                _newName = "";
+                _labelsMsg = $"Метка «{created.Name}» добавлена.";
+            }
+            else _labelsMsg = "Не удалось добавить метку.";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteLabelAsync(LabelDto l)
+    {
+        _busy = true; _labelsMsg = null;
+        try
+        {
+            if (await Api.DeleteLabelAsync(l.Id)) { _labels.Remove(l); _labelsMsg = $"Метка «{l.Name}» скрыта."; }
+            else _labelsMsg = "Не удалось удалить метку.";
+        }
+        finally { _busy = false; }
+    }
+}

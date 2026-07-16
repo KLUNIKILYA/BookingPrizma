@@ -1,0 +1,108 @@
+@page "/reports"
+@inject BookingApi Api
+@inject IJSRuntime JS
+
+<div class="set-wrap">
+    <h1 class="set-title">Отчёты</h1>
+
+    <section class="set-card">
+        <div class="set-card__head">
+            <h2>Отчёт по броням за период</h2>
+        </div>
+
+        <div class="set-report-bar">
+            <label>С <input type="date" class="set-input" @bind="_from" /></label>
+            <label>По <input type="date" class="set-input" @bind="_to" /></label>
+            <button class="bk-btn" @onclick="LoadReportAsync" disabled="@_reportBusy">Показать</button>
+            @if (_reportLoaded)
+            {
+                <button type="button" class="bk-btn bk-btn--ghost" @onclick="DownloadAsync">⬇ Скачать отчёт (PDF)</button>
+            }
+        </div>
+
+        @if (_reportLoaded)
+        {
+            <div class="set-summary">
+                <span class="set-summary__total">Всего: <b>@_report.Count</b> · действительных: <b>@_report.Count(b => !b.IsCancelled)</b> · отменено: <b>@_report.Count(b => b.IsCancelled)</b></span>
+                @foreach (var g in _summary)
+                {
+                    <span class="bk-chip"><span class="bk-chip__dot" style="background:@LabelColor(g.Key)"></span>@g.Key: <b>@g.Value</b></span>
+                }
+            </div>
+
+            <div class="set-table">
+                <div class="set-table__head">
+                    <div>Дата и время</div><div>Комната</div><div>Клиент</div><div>Официант</div><div>Статус</div>
+                </div>
+                @if (_report.Count == 0)
+                {
+                    <div class="set-table__empty">За период броней нет.</div>
+                }
+                @foreach (var b in _report)
+                {
+                    <div class="set-table__row @(b.IsCancelled ? "is-cancelled" : "")">
+                        <div>@b.TimeFrom.ToString("dd.MM.yyyy HH:mm")–@b.TimeTo.ToString("HH:mm")</div>
+                        <div>@RoomName(b.ResourceId)</div>
+                        <div>@(string.IsNullOrWhiteSpace(b.ClientName) ? b.Title : b.ClientName)</div>
+                        <div>@(b.WaiterName ?? "—")</div>
+                        <div>
+                            @if (b.IsCancelled)
+                            {
+                                <span class="set-status set-status--cancelled">✖ Отменена</span>
+                            }
+                            else
+                            {
+                                <span class="set-status" style="background:@b.Color">@b.LabelName</span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private bool _reportBusy;
+    private bool _reportLoaded;
+    private DateTime _from = DateTime.Today.AddDays(-30);
+    private DateTime _to = DateTime.Today;
+    private List<BookingEventDto> _report = new();
+    private List<KeyValuePair<string, int>> _summary = new();
+    private Dictionary<int, string> _roomNames = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var resources = await Api.GetResourcesAsync();
+        _roomNames = resources.ToDictionary(r => r.Id, r => r.DisplayName);
+    }
+
+    private async Task LoadReportAsync()
+    {
+        _reportBusy = true;
+        try
+        {
+            var from = _from.Date;
+            var to = _to.Date.AddDays(1);
+            _report = (await Api.GetBookingsAsync(from, to, null, null))
+                .OrderBy(b => b.TimeFrom).ToList();
+            _summary = _report.GroupBy(b => b.IsCancelled ? "Отменена" : b.LabelName)
+                .Select(g => new KeyValuePair<string, int>(g.Key, g.Count()))
+                .OrderByDescending(kv => kv.Value).ToList();
+            _reportLoaded = true;
+        }
+        finally { _reportBusy = false; }
+    }
+
+    private async Task DownloadAsync()
+    {
+        var from = _from.Date;
+        var to = _to.Date.AddDays(1);
+        await JS.InvokeVoidAsync("open", Api.ReportListUrl(from, to), "_blank");
+    }
+
+    private string RoomName(int id) => _roomNames.TryGetValue(id, out var n) ? n : $"#{id}";
+
+    private string LabelColor(string labelName) =>
+        _report.FirstOrDefault(b => b.LabelName == labelName)?.Color ?? "#E3E8EF";
+}

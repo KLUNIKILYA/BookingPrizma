@@ -1,0 +1,135 @@
+@using System.Globalization
+
+<div class="bk-cal" @onmouseup="EndDrag" @onmouseleave="EndDrag">
+    <div class="bk-cal__head">
+        <button class="bk-cal__nav" @onclick="PrevMonth" title="Назад">‹</button>
+        <span class="bk-cal__title">Календарь</span>
+        <button class="bk-cal__nav" @onclick="NextMonth" title="Вперёд">›</button>
+    </div>
+
+    @for (var m = 0; m < MonthsToShow; m++)
+    {
+        var monthStart = _baseMonth.AddMonths(m);
+        <div class="bk-cal__month">
+            <div class="bk-cal__month-name">@Cap(monthStart.ToString("MMMM yyyy", _ru))</div>
+            <div class="bk-cal__grid">
+                @foreach (var wd in _weekdays)
+                {
+                    <div class="bk-cal__wd">@wd</div>
+                }
+                @foreach (var day in DaysOf(monthStart))
+                {
+                    if (day is null)
+                    {
+                        <div class="bk-cal__cell bk-cal__cell--empty"></div>
+                    }
+                    else
+                    {
+                        var dd = day.Value;
+                        <div class="bk-cal__cell @CellClass(dd)"
+                             @onmousedown="() => StartDrag(dd)"
+                             @onmouseenter="() => HoverDrag(dd)"
+                             @onmousedown:preventDefault="true">@dd.Day</div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    <button class="bk-cal__today" @onclick="GoToday">Сегодня</button>
+</div>
+
+@code {
+    [Parameter] public int MonthsToShow { get; set; } = 3;
+    [Parameter] public DateTime Today { get; set; } = DateTime.Today;
+
+    [Parameter] public EventCallback<DateRange> OnRangeSelected { get; set; }
+
+    public record struct DateRange(DateTime Start, DateTime End);
+
+    private readonly CultureInfo _ru = CultureInfo.GetCultureInfo("ru-RU");
+    private readonly string[] _weekdays = { "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС" };
+
+    private DateTime _baseMonth;
+    private bool _dragging;
+    private DateTime _anchor;
+    private DateTime _hover;
+    private DateTime? _selStart;
+    private DateTime? _selEnd;
+
+    protected override void OnInitialized()
+    {
+        _baseMonth = new DateTime(Today.Year, Today.Month, 1);
+        _selStart = _selEnd = Today;
+    }
+
+    private void PrevMonth() => _baseMonth = _baseMonth.AddMonths(-1);
+    private void NextMonth() => _baseMonth = _baseMonth.AddMonths(1);
+
+    public void SetSelection(DateTime start, DateTime end)
+    {
+        _selStart = start.Date <= end.Date ? start.Date : end.Date;
+        _selEnd = start.Date <= end.Date ? end.Date : start.Date;
+        _baseMonth = new DateTime(_selStart.Value.Year, _selStart.Value.Month, 1);
+        StateHasChanged();
+    }
+
+    private async Task GoToday()
+    {
+        _baseMonth = new DateTime(Today.Year, Today.Month, 1);
+        _selStart = _selEnd = Today;
+        await OnRangeSelected.InvokeAsync(new DateRange(Today, Today));
+    }
+
+    private void StartDrag(DateTime d)
+    {
+        _dragging = true;
+        _anchor = d;
+        _hover = d;
+    }
+
+    private void HoverDrag(DateTime d)
+    {
+        if (_dragging) _hover = d;
+    }
+
+    private async Task EndDrag()
+    {
+        if (!_dragging) return;
+        _dragging = false;
+        var start = _anchor <= _hover ? _anchor : _hover;
+        var end = _anchor <= _hover ? _hover : _anchor;
+        _selStart = start;
+        _selEnd = end;
+        await OnRangeSelected.InvokeAsync(new DateRange(start, end));
+    }
+
+    private string CellClass(DateTime d)
+    {
+        var cls = new List<string>();
+        if (d.Date == Today.Date) cls.Add("bk-cal__cell--today");
+
+        if (_dragging)
+        {
+            var lo = _anchor <= _hover ? _anchor : _hover;
+            var hi = _anchor <= _hover ? _hover : _anchor;
+            if (d.Date >= lo.Date && d.Date <= hi.Date) cls.Add("bk-cal__cell--drag");
+        }
+        else if (_selStart is { } s && _selEnd is { } e && d.Date >= s.Date && d.Date <= e.Date)
+        {
+            cls.Add("bk-cal__cell--sel");
+        }
+        return string.Join(' ', cls);
+    }
+
+    private static IEnumerable<DateTime?> DaysOf(DateTime monthStart)
+    {
+        var first = new DateTime(monthStart.Year, monthStart.Month, 1);
+        var lead = ((int)first.DayOfWeek + 6) % 7;
+        for (var i = 0; i < lead; i++) yield return null;
+        var days = DateTime.DaysInMonth(first.Year, first.Month);
+        for (var d = 1; d <= days; d++) yield return new DateTime(first.Year, first.Month, d);
+    }
+
+    private static string Cap(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0]) + s[1..];
+}

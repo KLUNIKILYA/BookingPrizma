@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "webui",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "BookingSystem.WebUI", "--urls", "http://localhost:5006"],
+      "port": 5006
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+@inject BookingApi Api
+
+@if (_open)
+{
+    <div class="bk-drawer-backdrop" @onclick="Close">
+        <div class="bk-drawer" @onclick:stopPropagation="true">
+            <div class="bk-drawer__head">
+                <div class="bk-drawer__title">Каталог — услуги и билеты</div>
+                <input class="bk-input bk-drawer__search" placeholder="Поиск по названию…"
+                       @bind="_search" @bind:event="oninput" />
+                <button type="button" class="bk-modal__close" @onclick="Close">✕</button>
+            </div>
+
+            <div class="bk-drawer__body">
+                <aside class="bk-cat">
+                    <div class="bk-cat__label">Услуги</div>
+                    <button type="button" class="bk-cat__item @(_cat == "all-services" ? "is-active" : "")"
+                            @onclick='() => SelectCat("all-services")'>
+                        <span>Все услуги</span><span class="bk-cat__num">@_services.Count</span>
+                    </button>
+                    @foreach (var g in Groups)
+                    {
+                        var key = $"g:{g.Id}";
+                        var cnt = _services.Count(s => s.GroupId == g.Id);
+                        <button type="button" class="bk-cat__item @(_cat == key ? "is-active" : "")"
+                                @onclick="() => SelectCat(key)">
+                            <span>@g.Name</span><span class="bk-cat__num">@cnt</span>
+                        </button>
+                    }
+                    <div class="bk-cat__label">Билеты</div>
+                    <button type="button" class="bk-cat__item @(_cat == "all-tickets" ? "is-active" : "")"
+                            @onclick='() => SelectCat("all-tickets")'>
+                        <span>Все билеты</span><span class="bk-cat__num">@_folders.Sum(f => f.Tickets.Count)</span>
+                    </button>
+                    @foreach (var f in _folders)
+                    {
+                        var key = $"f:{f.Id}";
+                        <button type="button" class="bk-cat__item @(_cat == key ? "is-active" : "")"
+                                @onclick="() => SelectCat(key)">
+                            <span>@f.Name</span><span class="bk-cat__num">@f.Tickets.Count</span>
+                        </button>
+                    }
+                </aside>
+
+                <div class="bk-catalog">
+                    @if (!string.IsNullOrWhiteSpace(_search))
+                    {
+                        <div class="bk-catalog__hint">Поиск по всему каталогу: «@_search»</div>
+                    }
+                    <div class="bk-cards">
+                        @{ var items = Items.ToList(); }
+                        @if (items.Count == 0)
+                        {
+                            <div class="bk-cards__empty">Ничего не найдено</div>
+                        }
+                        @foreach (var it in items)
+                        {
+                            var qty = CartQty(it);
+                            <button type="button" class="bk-card @(qty > 0 ? "is-in-cart" : "")" @onclick="() => Add(it)">
+                                @if (qty > 0)
+                                {
+                                    <span class="bk-card__badge">@qty</span>
+                                }
+                                <span class="bk-card__name">@it.Name</span>
+                                <span class="bk-card__price">@it.Price.ToString("0.##")</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <aside class="bk-cart">
+                    <div class="bk-cart__head">Выбрано <span class="bk-cart__count">@CartCount</span></div>
+                    <div class="bk-cart__list">
+                        @if (_cart.Count == 0)
+                        {
+                            <div class="bk-cart__empty">Кликайте позиции слева — они появятся здесь</div>
+                        }
+                        @foreach (var line in _cart)
+                        {
+                            var l = line;
+                            <div class="bk-cart__row">
+                                <div class="bk-cart__name">@l.Name</div>
+                                <div class="bk-cart__stepper">
+                                    <button type="button" @onclick="() => Dec(l)">−</button>
+                                    <span>@l.Quantity</span>
+                                    <button type="button" @onclick="() => Inc(l)">+</button>
+                                </div>
+                                <div class="bk-cart__sum">@((l.Price * l.Quantity).ToString("0.##"))</div>
+                                <button type="button" class="bk-icon-btn" @onclick="() => Remove(l)" title="Убрать">🗑</button>
+                            </div>
+                        }
+                    </div>
+                    <div class="bk-cart__total">Позиции: <b>@CartTotal.ToString("0.##")</b></div>
+                </aside>
+            </div>
+
+            <div class="bk-drawer__foot">
+                <button type="button" class="bk-btn bk-btn--ghost" @onclick="Close">Отмена</button>
+                <button type="button" class="bk-btn" @onclick="Apply">Применить (@CartCount)</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public List<ServiceGroupDto> Groups { get; set; } = new();
+
+    [Parameter] public EventCallback<List<OrderLine>> OnApply { get; set; }
+
+    private bool _open;
+    private string _search = "";
+    private string _cat = "all-services";
+    private List<ServiceDto> _services = new();
+    private List<TicketFolderDto> _folders = new();
+    private readonly List<OrderLine> _cart = new();
+
+    private record CatItem(int Id, string Name, decimal Price, bool IsTicket);
+
+    public async Task OpenAsync(IEnumerable<OrderLine> current)
+    {
+        _cart.Clear();
+        foreach (var s in current)
+            _cart.Add(new OrderLine
+            {
+                ServiceId = s.ServiceId, Name = s.Name, Price = s.Price,
+                Quantity = Math.Max(1, s.Quantity), IsDone = s.IsDone, IsTicket = s.IsTicket
+            });
+        _search = "";
+        _cat = "all-services";
+        if (_services.Count == 0) _services = await Api.GetServicesAsync(null);
+        if (_folders.Count == 0) _folders = await Api.GetTicketFoldersAsync();
+        _open = true;
+        StateHasChanged();
+    }
+
+    private IEnumerable<CatItem> Items
+    {
+        get
+        {
+            var q = _search?.Trim() ?? "";
+            IEnumerable<CatItem> AllServices() => _services.Select(s => new CatItem(s.Id, s.Name, s.Price, false));
+            IEnumerable<CatItem> AllTickets() => _folders.SelectMany(f => f.Tickets).Select(t => new CatItem(t.TicketId, t.Name, t.Price, true));
+
+            if (q.Length > 0)
+                return AllServices().Concat(AllTickets())
+                    .Where(i => i.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
+            if (_cat == "all-services") return AllServices();
+            if (_cat == "all-tickets") return AllTickets();
+            if (_cat.StartsWith("g:") && int.TryParse(_cat[2..], out var gid))
+                return _services.Where(s => s.GroupId == gid).Select(s => new CatItem(s.Id, s.Name, s.Price, false));
+            if (_cat.StartsWith("f:") && int.TryParse(_cat[2..], out var fid))
+                return _folders.Where(f => f.Id == fid).SelectMany(f => f.Tickets)
+                    .Select(t => new CatItem(t.TicketId, t.Name, t.Price, true));
+            return Enumerable.Empty<CatItem>();
+        }
+    }
+
+    private int CartQty(CatItem it) =>
+        _cart.FirstOrDefault(l => l.ServiceId == it.Id && l.IsTicket == it.IsTicket)?.Quantity ?? 0;
+    private decimal CartTotal => _cart.Sum(l => l.Price * Math.Max(1, l.Quantity));
+    private int CartCount => _cart.Sum(l => Math.Max(1, l.Quantity));
+
+    private void SelectCat(string key) { _cat = key; _search = ""; }
+
+    private void Add(CatItem it)
+    {
+        var line = _cart.FirstOrDefault(l => l.ServiceId == it.Id && l.IsTicket == it.IsTicket);
+        if (line is null)
+            _cart.Add(new OrderLine { ServiceId = it.Id, Name = it.Name, Price = it.Price, IsTicket = it.IsTicket, Quantity = 1 });
+        else line.Quantity++;
+    }
+    private void Inc(OrderLine line) => line.Quantity++;
+    private void Dec(OrderLine line) { if (--line.Quantity < 1) _cart.Remove(line); }
+    private void Remove(OrderLine line) => _cart.Remove(line);
+
+    private void Close() => _open = false;
+
+    private async Task Apply()
+    {
+        _open = false;
+        await OnApply.InvokeAsync(_cart.Select(l => new OrderLine
+        {
+            ServiceId = l.ServiceId, Name = l.Name, Price = l.Price,
+            Quantity = Math.Max(1, l.Quantity), IsDone = l.IsDone, IsTicket = l.IsTicket
+        }).ToList());
+    }
+}

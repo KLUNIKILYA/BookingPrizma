@@ -1,0 +1,834 @@
+@inject BookingApi Api
+@inject IJSRuntime JS
+
+@if (_visible)
+{
+    <div class="bk-modal-backdrop" @onclick="Cancel">
+        <div class="bk-modal @(_fullscreen ? "bk-modal--full" : "")" @onclick:stopPropagation="true">
+            <div class="bk-modal__head">
+                <div class="bk-modal__title">@HeadTitle</div>
+                <div class="bk-modal__head-actions">
+                    <button type="button" class="bk-modal__icon" @onclick="ToggleFullscreen"
+                            title="@(_fullscreen ? "Свернуть окно" : "Открыть во весь экран")">
+                        @if (_fullscreen)
+                        {
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M9.5 6.5h-3v-3M6.5 6.5l-3-3M6.5 9.5h-3v3M6.5 9.5l-3 3M9.5 9.5h3v3M9.5 9.5l3 3M9.5 6.5h3v-3M9.5 6.5l3-3" />
+                            </svg>
+                        }
+                        else
+                        {
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10" />
+                            </svg>
+                        }
+                    </button>
+                    <button type="button" class="bk-modal__close" @onclick="Cancel">✕</button>
+                </div>
+            </div>
+
+            @if (_readOnly)
+            {
+                <div class="bk-error" style="color:#23306b;">Бронь кассовой системы — только просмотр.</div>
+            }
+            @if (_isCancelled)
+            {
+                <div class="bk-cancelled-banner">✖ Бронь отменена@(_cancelledAt is { } ca ? $" {ca:dd.MM.yyyy HH:mm}" : "") — время не блокирует.</div>
+            }
+            @if (_error is not null)
+            {
+                <div class="bk-alert" role="alert">@_error</div>
+            }
+
+            <fieldset disabled="@_readOnly" style="border:none; padding:0; margin:0; min-width:0;">
+            <div class="bk-modal__body">
+                <div>
+                    <p class="bk-section-title">Клиент</p>
+                    <div class="bk-form-row bk-autocomplete">
+                        <label>@(_clientId.HasValue ? $"Выбран: {_clientName}" : "Поиск в базе по фамилии")</label>
+                        <div class="bk-client-row">
+                            <input class="bk-input" value="@_clientQuery" @oninput="OnClientInput"
+                                   @onfocus="() => _showSuggest = _suggestions.Count > 0"
+                                   placeholder="Введите фамилию…" />
+                            <button type="button" class="bk-btn bk-btn--ghost" @onclick="ToggleNewClient">
+                                @(_newClientMode ? "Отмена" : "+ Новый")
+                            </button>
+                        </div>
+                        @if (_showSuggest && _suggestions.Count > 0 && !_newClientMode)
+                        {
+                            <div class="bk-suggest">
+                                @foreach (var c in _suggestions)
+                                {
+                                    <div class="bk-suggest__item" @onclick="() => PickClient(c)">
+                                        @c.FullName
+                                        @if (!string.IsNullOrWhiteSpace(c.Phone))
+                                        {
+                                            <span class="bk-suggest__phone"> · @c.Phone</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @if (_newClientMode)
+                    {
+                        <div class="bk-newclient">
+                            <div class="bk-row-2">
+                                <div class="bk-form-row">
+                                    <label>Фамилия</label>
+                                    <input class="bk-input" @bind="_ncSurname" />
+                                </div>
+                                <div class="bk-form-row">
+                                    <label>Имя</label>
+                                    <input class="bk-input" @bind="_ncName" />
+                                </div>
+                            </div>
+                            <div class="bk-form-row">
+                                <label>Телефон</label>
+                                <input class="bk-input" @bind="_ncPhone" placeholder="необязательно" />
+                            </div>
+                            <button type="button" class="bk-btn" @onclick="CreateClientAsync" disabled="@_busy">Создать и выбрать</button>
+                        </div>
+                    }
+
+                    <div class="bk-form-row">
+                        <label>Тип зоны</label>
+                        <select @bind="_roomTypeKey" @bind:after="OnRoomTypeChanged">
+                            @foreach (var grp in ResourcesByType)
+                            {
+                                <option value="@grp.Key">@grp.Key (@grp.Count())</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="bk-form-row">
+                        <label>@(_editingId.HasValue ? "Комната" : "Комнаты выбранного типа")</label>
+                        @if (_editingId.HasValue)
+                        {
+                            <select @bind="_singleRoomId" @bind:after="OnRoomChanged">
+                                @foreach (var r in RoomsOfSelectedType)
+                                {
+                                    var busy = RoomBusy(r.Id);
+                                    <option value="@r.Id" disabled="@(busy is not null && r.Id != _singleRoomId)">
+                                        @r.DisplayName@(busy is not null ? $" — занята до {busy.TimeTo:HH:mm}" : "")
+                                    </option>
+                                }
+                            </select>
+                        }
+                        else
+                        {
+                            <div class="bk-room-multi">
+                                @foreach (var r in RoomsOfSelectedType)
+                                {
+                                    var busy = RoomBusy(r.Id);
+                                    <label class="bk-room-multi__item @(busy is not null ? "is-busy" : "")">
+                                        <input type="checkbox" disabled="@(busy is not null)" checked="@_roomIds.Contains(r.Id)"
+                                               @onchange="e => OnRoomToggle(r.Id, (bool)(e.Value ?? false))" />
+                                        <span>@r.DisplayName</span>
+                                        @if (busy is not null)
+                                        {
+                                            <span class="bk-busy-note">занята до @busy.TimeTo.ToString("HH:mm")@(string.IsNullOrWhiteSpace(busy.Title) ? "" : " · " + busy.Title)</span>
+                                        }
+                                    </label>
+                                }
+                            </div>
+                            @if (_roomIds.Count > 0)
+                            {
+                                <div class="bk-room-chips">
+                                    @foreach (var r in Resources.Where(x => _roomIds.Contains(x.Id)).OrderBy(x => x.SortOrder).ThenBy(x => x.DisplayName))
+                                    {
+                                        var rid = r.Id;
+                                        <span class="bk-room-chip">
+                                            @r.DisplayName
+                                            <button type="button" @onclick="() => OnRoomToggle(rid, false)" title="Убрать">✕</button>
+                                        </span>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    <div class="bk-form-row">
+                        <label>Официант</label>
+                        <select @bind="_waiterId">
+                            <option value="0">— не задан —</option>
+                            @foreach (var w in Waiters)
+                            {
+                                var wbusy = WaiterBusy(w.Id);
+                                <option value="@w.Id" disabled="@(wbusy is not null && w.Id != _waiterId)">
+                                    @w.FullName@(wbusy is not null ? $" — занят до {wbusy.TimeTo:HH:mm}" : "")
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="bk-row-2">
+                        <div class="bk-form-row">
+                            <label>Дата начала</label>
+                            <input type="date" @bind="_date" @bind:after="RefreshAvailabilityAsync" />
+                        </div>
+                        <div class="bk-form-row">
+                            <label>Время начала</label>
+                            <select @bind="_time" @bind:after="RefreshAvailabilityAsync">
+                                @foreach (var t in TimeOptions(_time))
+                                {
+                                    <option value="@t">@t</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="bk-row-2">
+                        <div class="bk-form-row">
+                            <label>Дата окончания</label>
+                            <input type="date" @bind="_endDate" @bind:after="RefreshAvailabilityAsync" />
+                        </div>
+                        <div class="bk-form-row">
+                            <label>Время окончания</label>
+                            <select @bind="_endTime" @bind:after="RefreshAvailabilityAsync">
+                                @foreach (var t in TimeOptions(_endTime))
+                                {
+                                    <option value="@t">@t</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (EndDateTime <= StartDateTime)
+                    {
+                        <div class="bk-warn">⚠ Время окончания должно быть позже начала.</div>
+                    }
+
+                    <div class="bk-form-row">
+                        <label>Метка</label>
+                        <select @bind="_labelValue">
+                            @foreach (var l in Labels)
+                            {
+                                <option value="@l.Id">@l.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="bk-form-row">
+                        <label>Примечание / пожелания по празднованию</label>
+                        <textarea @bind="_note" placeholder="Комментарии клиента по празднованию"></textarea>
+                    </div>
+
+                    <p class="bk-section-title">Именинник</p>
+                    <div class="bk-row-2">
+                        <div class="bk-form-row">
+                            <label>Имя именинника</label>
+                            <input class="bk-input" @bind="_celebrantName" placeholder="необязательно" />
+                        </div>
+                        <div class="bk-form-row">
+                            <label>Дата рождения</label>
+                            <input type="date" @bind="_celebrantBirth" />
+                        </div>
+                    </div>
+
+                    <div class="bk-form-row">
+                        <label>Предоплата</label>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="bk-prepaid" @bind="_isPrepaid" />
+                            <label for="bk-prepaid" style="margin:0; font-weight:normal; white-space:nowrap;">внесена</label>
+                            <input type="number" min="0" step="0.01" class="bk-input" style="flex:1;"
+                                   placeholder="сумма" @bind="_prepaidAmount" disabled="@(!_isPrepaid)" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bk-order">
+                    <button type="button" class="bk-add-catalog" @onclick="OpenCatalog" disabled="@_readOnly">
+                        <span class="bk-add-catalog__plus">+</span> Добавить услуги и билеты
+                    </button>
+
+                    <p class="bk-section-title" style="margin-top:14px;">Список выбранных услуг</p>
+                    <div class="bk-grid bk-grid--sel2">
+                        <div class="bk-grid__head">
+                            <div>Название</div><div class="bk-grid__num">Цена</div><div class="bk-grid__num">Кол-во</div><div class="bk-grid__num">Сумма</div><div></div>
+                        </div>
+                        <div class="bk-grid__scroll">
+                            @if (_selected.Count == 0)
+                            {
+                                <div class="bk-grid__empty">Пусто — нажмите «+ Добавить услуги и билеты»</div>
+                            }
+                            @for (var i = 0; i < _selected.Count; i++)
+                            {
+                                var idx = i;
+                                var line = _selected[idx];
+                                <div class="bk-grid__row">
+                                    <div>@line.Name</div>
+                                    <div class="bk-grid__num">@line.Price.ToString("0.##")</div>
+                                    <div class="bk-grid__num">
+                                        <input type="number" min="1" step="1" class="bk-qty"
+                                               @bind="line.Quantity" @bind:after="() => ClampQty(line)" />
+                                    </div>
+                                    <div class="bk-grid__num">@((line.Price * line.Quantity).ToString("0.##"))</div>
+                                    <div><button class="bk-icon-btn" @onclick="() => RemoveAt(idx)" title="Убрать">🗑</button></div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="bk-sums">
+                        <span>Длительность: <b>@DurationText</b></span>
+                        <span>Аренда: <b>@TariffSum.ToString("0.##")</b></span>
+                        <span>Итого: <b>@TotalPrice.ToString("0.##")</b></span>
+                    </div>
+                    @if (_isPrepaid)
+                    {
+                        <div class="bk-sums bk-sums--pay">
+                            <span>Предоплата: <b>−@_prepaidAmount.ToString("0.##")</b></span>
+                            <span class="bk-due">К доплате: <b>@DueAmount.ToString("0.##")</b></span>
+                        </div>
+                    }
+                </div>
+            </div>
+            </fieldset>
+
+            <div class="bk-modal__foot">
+                @if (_readOnly)
+                {
+                    <button type="button" class="bk-btn bk-btn--ghost" style="margin-right:auto;" @onclick="PrintAsync">🖨 Печать для кафе</button>
+                    <button class="bk-btn bk-btn--ghost" @onclick="Cancel">Закрыть</button>
+                }
+                else
+                {
+                    @if (_editingId.HasValue)
+                    {
+                        <button class="bk-btn bk-btn--danger" @onclick="DeleteAsync" disabled="@_busy">Удалить</button>
+                        @if (_isCancelled)
+                        {
+                            <button type="button" class="bk-btn" style="background:#2f9e44;" @onclick="RestoreBookingAsync" disabled="@_busy">↩ Вернуть бронь</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="bk-btn bk-btn--warn" @onclick="CancelBookingAsync" disabled="@_busy">✖ Отменить бронь</button>
+                        }
+                    }
+                    <button type="button" class="bk-btn bk-btn--ghost" style="margin-right:auto;" @onclick="PrintAsync">🖨 Печать для кафе</button>
+                    <button class="bk-btn bk-btn--ghost" @onclick="Cancel" disabled="@_busy">Отмена</button>
+                    <button class="bk-btn" @onclick="SaveAsync" disabled="@_busy">Сохранить</button>
+                }
+            </div>
+        </div>
+    </div>
+
+}
+
+<CatalogPicker @ref="_catalog" Groups="Groups" OnApply="OnCatalogApplied" />
+
+@code {
+    [Parameter] public List<ResourceDto> Resources { get; set; } = new();
+    [Parameter] public List<ServiceGroupDto> Groups { get; set; } = new();
+    [Parameter] public List<ClientDto> Waiters { get; set; } = new();
+    [Parameter] public List<LabelDto> Labels { get; set; } = new();
+
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool _visible;
+    private bool _busy;
+    private bool _fullscreen;
+    private bool _readOnly;
+    private string? _error;
+    private int? _editingId;
+
+    private string _title = "";
+    private readonly HashSet<int> _roomIds = new();
+    private int _waiterId;
+    private string _roomTypeKey = "";
+
+    private int _singleRoomId
+    {
+        get => _roomIds.Count > 0 ? _roomIds.First() : 0;
+        set { _roomIds.Clear(); if (value > 0) _roomIds.Add(value); }
+    }
+
+    private async Task OnRoomToggle(int id, bool on)
+    {
+        if (on) _roomIds.Add(id); else _roomIds.Remove(id);
+        await ReloadTariffsAsync();
+    }
+
+    private async Task OnRoomChanged()
+    {
+        await ReloadTariffsAsync();
+        await RefreshAvailabilityAsync();
+    }
+
+    private async Task OnRoomTypeChanged()
+    {
+        if (_editingId.HasValue)
+        {
+            var rooms = RoomsOfSelectedType.ToList();
+            if (rooms.Count > 0 && rooms.All(r => r.Id != _singleRoomId))
+            {
+                _singleRoomId = rooms[0].Id;
+                await OnRoomChanged();
+            }
+        }
+    }
+
+    private List<int> SelectedRooms() =>
+        _editingId.HasValue
+            ? (_singleRoomId > 0 ? new List<int> { _singleRoomId } : new List<int>())
+            : _roomIds.ToList();
+
+    private async Task ReloadTariffsAsync()
+    {
+        var map = new Dictionary<int, List<TariffDto>>();
+        foreach (var rid in SelectedRooms())
+            map[rid] = await Api.GetTariffsAsync(rid);
+        _tariffsByRoom = map;
+        StateHasChanged();
+    }
+
+    private DateTime _date = DateTime.Today;
+    private string _time = "10:00";
+    private DateTime _endDate = DateTime.Today;
+    private string _endTime = "11:00";
+    private int _labelValue;
+    private string? _note;
+
+    private string? _celebrantName;
+    private DateTime? _celebrantBirth;
+    private bool _isPrepaid;
+    private decimal _prepaidAmount;
+
+    private int? _clientId;
+    private string _clientName = "";
+    private string _clientQuery = "";
+    private List<ClientDto> _suggestions = new();
+    private bool _showSuggest;
+
+    private bool _newClientMode;
+    private string _ncSurname = "";
+    private string _ncName = "";
+    private string _ncPhone = "";
+
+    private readonly List<OrderLine> _selected = new();
+
+    private Dictionary<int, List<TariffDto>> _tariffsByRoom = new();
+
+    private CatalogPicker? _catalog;
+
+    private async Task OpenCatalog()
+    {
+        if (_readOnly) return;
+        await _catalog!.OpenAsync(_selected);
+    }
+
+    private void OnCatalogApplied(List<OrderLine> lines)
+    {
+        _selected.Clear();
+        _selected.AddRange(lines);
+        StateHasChanged();
+    }
+
+    private bool _isCancelled;
+    private DateTime? _cancelledAt;
+
+    private Dictionary<int, BusySlotDto> _busyRooms = new();
+    private Dictionary<int, BusySlotDto> _busyWaiters = new();
+
+    private BusySlotDto? RoomBusy(int id) => _busyRooms.GetValueOrDefault(id);
+    private BusySlotDto? WaiterBusy(int id) => _busyWaiters.GetValueOrDefault(id);
+
+    private IEnumerable<IGrouping<string, ResourceDto>> ResourcesByType =>
+        Resources
+            .OrderBy(r => r.ZoneTypeId ?? int.MaxValue).ThenBy(r => r.SortOrder).ThenBy(r => r.DisplayName)
+            .GroupBy(r => string.IsNullOrWhiteSpace(r.ZoneTypeName) ? "Без типа" : r.ZoneTypeName!);
+
+    private static string TypeKeyOf(ResourceDto r) => string.IsNullOrWhiteSpace(r.ZoneTypeName) ? "Без типа" : r.ZoneTypeName!;
+
+    private IEnumerable<ResourceDto> RoomsOfSelectedType =>
+        (ResourcesByType.FirstOrDefault(g => g.Key == _roomTypeKey) as IEnumerable<ResourceDto>) ?? Enumerable.Empty<ResourceDto>();
+
+    private string DefaultRoomTypeKey()
+    {
+        var sel = Resources.FirstOrDefault(r => _roomIds.Contains(r.Id));
+        if (sel is not null) return TypeKeyOf(sel);
+        return ResourcesByType.Select(g => g.Key).FirstOrDefault() ?? "Без типа";
+    }
+
+    private string HeadTitle => _readOnly ? "Просмотр брони" : (_editingId.HasValue ? "Редактирование записи" : "Новая запись");
+
+    private int BookingMinutes => (int)Math.Max(0, (EndDateTime - StartDateTime).TotalMinutes);
+
+    private static decimal AutoTariffPrice(List<TariffDto> tariffs, int minutes)
+    {
+        if (minutes <= 0 || tariffs.Count == 0) return 0m;
+        var cover = tariffs.Where(t => t.Minutes >= minutes)
+                           .OrderBy(t => t.Minutes).ThenBy(t => t.Price).FirstOrDefault();
+        return cover?.Price
+            ?? tariffs.OrderByDescending(t => t.Minutes).ThenBy(t => t.Price).First().Price;
+    }
+
+    private decimal TariffSum
+    {
+        get
+        {
+            var mins = BookingMinutes;
+            if (mins <= 0) return 0m;
+            decimal sum = 0m;
+            foreach (var rid in SelectedRooms())
+                if (_tariffsByRoom.TryGetValue(rid, out var list))
+                    sum += AutoTariffPrice(list, mins);
+            return sum;
+        }
+    }
+    private decimal TotalPrice => _selected.Sum(s => s.Price * Math.Max(1, s.Quantity)) + TariffSum;
+
+    private decimal DueAmount => Math.Max(0m, TotalPrice - (_isPrepaid ? _prepaidAmount : 0m));
+
+    private void ToggleFullscreen() => _fullscreen = !_fullscreen;
+
+    private static void ClampQty(OrderLine line)
+    {
+        if (line.Quantity < 1) line.Quantity = 1;
+    }
+    private DateTime StartDateTime => _date.Date + ParseTime(_time, 10);
+    private DateTime EndDateTime => _endDate.Date + ParseTime(_endTime, 11);
+
+    private static readonly string[] TimeGrid = BuildTimeGrid();
+
+    private static string[] BuildTimeGrid()
+    {
+        var list = new List<string>();
+        for (var h = 0; h < 24; h++)
+            for (var m = 0; m < 60; m += 15)
+                list.Add($"{h:00}:{m:00}");
+        return list.ToArray();
+    }
+
+    private static IEnumerable<string> TimeOptions(string current) =>
+        string.IsNullOrEmpty(current) || TimeGrid.Contains(current)
+            ? TimeGrid
+            : TimeGrid.Append(current).OrderBy(x => x);
+
+    private static TimeSpan ParseTime(string s, int fallbackHour) =>
+        TimeSpan.TryParse(s, out var ts) ? ts : TimeSpan.FromHours(fallbackHour);
+
+    private string DurationText
+    {
+        get
+        {
+            var span = EndDateTime - StartDateTime;
+            if (span <= TimeSpan.Zero) return "0 мин";
+            return span.TotalDays >= 1
+                ? $"{(int)span.TotalDays} дн {span.Hours:00}:{span.Minutes:00}"
+                : $"{(int)span.TotalMinutes} мин";
+        }
+    }
+
+    public async Task OpenForCreateAsync(int resourceId, DateTime start)
+    {
+        InitCommon(new[] { resourceId }, start, start.AddHours(1));
+        await ReloadTariffsAsync();
+        await RefreshAvailabilityAsync();
+        StateHasChanged();
+    }
+
+    public async Task OpenForCreateMultiAsync(IEnumerable<int> resourceIds, DateTime start, DateTime end)
+    {
+        if (end <= start) end = start.AddHours(1);
+        InitCommon(resourceIds, start, end);
+        await ReloadTariffsAsync();
+        await RefreshAvailabilityAsync();
+        StateHasChanged();
+    }
+
+    private void InitCommon(IEnumerable<int> resourceIds, DateTime start, DateTime end)
+    {
+        _editingId = null;
+        _readOnly = false;
+        _title = "";
+        _roomIds.Clear();
+        foreach (var id in resourceIds)
+            if (id > 0) _roomIds.Add(id);
+        _roomTypeKey = DefaultRoomTypeKey();
+        _waiterId = 0;
+        _date = start.Date;
+        _time = start.ToString("HH:mm");
+        _endDate = end.Date;
+        _endTime = end.ToString("HH:mm");
+        _labelValue = 0;
+        _note = null;
+        _celebrantName = null; _celebrantBirth = null; _isPrepaid = false; _prepaidAmount = 0;
+        _clientId = null; _clientName = ""; _clientQuery = ""; _suggestions.Clear(); _showSuggest = false;
+        _newClientMode = false; _ncSurname = ""; _ncName = ""; _ncPhone = "";
+        _selected.Clear();
+        _tariffsByRoom = new();
+        _isCancelled = false; _cancelledAt = null;
+        _busyRooms.Clear();
+        _busyWaiters.Clear();
+        _error = null;
+        _visible = true;
+    }
+
+    public async Task OpenForEditAsync(BookingEventDto dto)
+    {
+        _editingId = dto.Id;
+        _readOnly = !dto.CanEdit;
+        _title = dto.Title;
+        _roomIds.Clear();
+        _roomIds.Add(dto.ResourceId);
+        _roomTypeKey = DefaultRoomTypeKey();
+        _waiterId = dto.WaiterVisitorId ?? 0;
+        _date = dto.TimeFrom.Date;
+        _time = dto.TimeFrom.ToString("HH:mm");
+        _endDate = dto.TimeTo.Date;
+        _endTime = dto.TimeTo.ToString("HH:mm");
+        _labelValue = (int)dto.Label;
+        _note = dto.Note;
+        _celebrantName = dto.CelebrantName;
+        _celebrantBirth = dto.CelebrantBirthDate;
+        _isPrepaid = dto.IsPrepaid;
+        _prepaidAmount = dto.PrepaidAmount ?? 0;
+        _clientId = dto.ClientVisitorId;
+        _clientName = dto.ClientName ?? "";
+        _clientQuery = dto.ClientName ?? "";
+        _suggestions.Clear(); _showSuggest = false;
+        _newClientMode = false; _ncSurname = ""; _ncName = ""; _ncPhone = "";
+        _selected.Clear();
+        foreach (var s in dto.Services)
+            _selected.Add(new OrderLine
+            {
+                ServiceId = s.ServiceId, Name = s.ServiceName, Price = s.Price,
+                Quantity = s.Quantity < 1 ? 1 : s.Quantity, IsDone = s.IsDone, IsTicket = s.IsTicket
+            });
+        _isCancelled = dto.IsCancelled;
+        _cancelledAt = dto.CancelledAt;
+        _error = null;
+        _visible = true;
+        _busyRooms.Clear();
+        _busyWaiters.Clear();
+        await ReloadTariffsAsync();
+        await RefreshAvailabilityAsync();
+        StateHasChanged();
+    }
+
+    private async Task RefreshAvailabilityAsync()
+    {
+        if (_readOnly) return;
+        if (EndDateTime <= StartDateTime)
+        {
+            _busyRooms.Clear();
+            _busyWaiters.Clear();
+            return;
+        }
+
+        AvailabilityDto av;
+        try { av = await Api.GetAvailabilityAsync(StartDateTime, EndDateTime, _editingId); }
+        catch { return; }
+
+        _busyRooms = av.Rooms.GroupBy(r => r.Id)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.TimeTo).First());
+        _busyWaiters = av.Waiters.GroupBy(w => w.Id)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.TimeTo).First());
+
+        foreach (var id in _roomIds.Where(id => _busyRooms.ContainsKey(id)).ToList())
+            _roomIds.Remove(id);
+
+        StateHasChanged();
+    }
+
+    private async Task CancelBookingAsync()
+    {
+        if (_editingId is not int id) return;
+        _busy = true; _error = null;
+        try
+        {
+            var res = await Api.CancelBookingAsync(id);
+            if (!res.Ok) { _error = res.Error ?? "Не удалось отменить бронь."; return; }
+            _isCancelled = true;
+            _cancelledAt = res.Booking!.CancelledAt;
+            await OnChanged.InvokeAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RestoreBookingAsync()
+    {
+        if (_editingId is not int id) return;
+        _busy = true; _error = null;
+        try
+        {
+            var res = await Api.RestoreBookingAsync(id);
+            if (!res.Ok) { _error = BuildSaveError(res); return; }
+            _isCancelled = false;
+            _cancelledAt = null;
+            await OnChanged.InvokeAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private void RemoveAt(int idx)
+    {
+        if (_readOnly) return;
+        if (idx >= 0 && idx < _selected.Count) _selected.RemoveAt(idx);
+    }
+
+    private async Task OnClientInput(ChangeEventArgs e)
+    {
+        _clientQuery = e.Value?.ToString() ?? "";
+        _clientId = null;
+        _clientName = "";
+        var q = _clientQuery.Trim();
+        if (q.Length >= 2)
+        {
+            _suggestions = await Api.SearchClientsAsync(q, 8);
+            _showSuggest = true;
+        }
+        else
+        {
+            _suggestions.Clear();
+            _showSuggest = false;
+        }
+    }
+
+    private void PickClient(ClientDto c)
+    {
+        _clientId = c.Id;
+        _clientName = c.FullName;
+        _clientQuery = c.FullName;
+        _title = c.FullName;
+        _showSuggest = false;
+        _newClientMode = false;
+    }
+
+    private void ToggleNewClient()
+    {
+        _newClientMode = !_newClientMode;
+        if (_newClientMode)
+        {
+            _showSuggest = false;
+            _ncSurname = _clientQuery.Trim();
+            _ncName = "";
+            _ncPhone = "";
+        }
+    }
+
+    private async Task CreateClientAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_ncSurname) && string.IsNullOrWhiteSpace(_ncName))
+        {
+            _error = "Укажите фамилию или имя нового клиента.";
+            return;
+        }
+        _busy = true; _error = null;
+        try
+        {
+            var created = await Api.CreateClientAsync(new CreateClientRequest
+            {
+                Surname = _ncSurname.Trim(),
+                Name = _ncName.Trim(),
+                Phone = string.IsNullOrWhiteSpace(_ncPhone) ? null : _ncPhone.Trim()
+            });
+            if (created is null) { _error = "Не удалось создать клиента."; return; }
+            PickClient(created);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_roomIds.Count == 0) { _error = _editingId.HasValue ? "Выберите комнату." : "Выберите хотя бы одну комнату."; return; }
+        if (_clientId == null && string.IsNullOrWhiteSpace(_title)) { _error = "Выберите клиента или создайте нового."; return; }
+        if (EndDateTime <= StartDateTime) { _error = "Окончание должно быть позже начала."; return; }
+
+        _busy = true; _error = null;
+        try
+        {
+            BookingUpsertRequest Build(int roomId) => new()
+            {
+                ResourceId = roomId,
+                TimeFrom = StartDateTime,
+                TimeToOverride = EndDateTime,
+                Title = _title.Trim(),
+                ClientVisitorId = _clientId,
+                WaiterVisitorId = _waiterId > 0 ? _waiterId : null,
+                Label = (BookingLabel)_labelValue,
+                Note = _note,
+                CelebrantName = string.IsNullOrWhiteSpace(_celebrantName) ? null : _celebrantName.Trim(),
+                CelebrantBirthDate = _celebrantBirth,
+                IsPrepaid = _isPrepaid,
+                PrepaidAmount = _isPrepaid ? _prepaidAmount : (decimal?)null,
+                Services = _selected.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, Quantity = s.Quantity, IsDone = s.IsDone, IsTicket = s.IsTicket }).ToList()
+            };
+
+            if (_editingId.HasValue)
+            {
+                var res = await Api.UpdateAsync(_editingId.Value, Build(_roomIds.First()));
+                if (!res.Ok)
+                {
+                    _error = BuildSaveError(res);
+                    await RefreshAvailabilityAsync();
+                    return;
+                }
+            }
+            else
+            {
+                var created = new List<int>();
+                var errors = new List<string>();
+                foreach (var roomId in _roomIds.ToList())
+                {
+                    var res = await Api.CreateAsync(Build(roomId));
+                    if (res.Ok) created.Add(roomId);
+                    else errors.Add(BuildSaveError(res));
+                }
+                foreach (var id in created) _roomIds.Remove(id);
+
+                if (_roomIds.Count > 0)
+                {
+                    _error = string.Join(" ", errors.Distinct());
+                    await OnChanged.InvokeAsync();
+                    await RefreshAvailabilityAsync();
+                    return;
+                }
+            }
+
+            _visible = false;
+            await OnChanged.InvokeAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private static string BuildSaveError(BookingSaveResult res)
+    {
+        if (res.Conflicts.Count > 0)
+            return string.Join(" ", res.Conflicts.Select(c =>
+                $"❌ {c.ResourceName} уже забронирована на это время " +
+                $"({(string.IsNullOrWhiteSpace(c.Title) ? "бронь" : c.Title)}, {c.TimeFrom:HH:mm}–{c.TimeTo:HH:mm})."));
+        return res.Error ?? "Не удалось сохранить запись.";
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!_editingId.HasValue) return;
+        _busy = true; _error = null;
+        try
+        {
+            if (await Api.DeleteAsync(_editingId.Value))
+            {
+                _visible = false;
+                await OnChanged.InvokeAsync();
+            }
+            else { _error = "Не удалось удалить запись."; }
+        }
+        finally { _busy = false; }
+    }
+
+    private void Cancel() => _visible = false;
+
+    private async Task PrintAsync()
+    {
+        if (_editingId is not int id)
+        {
+            await JS.InvokeVoidAsync("alert", "Сначала сохраните бронь — печать формируется из сохранённых данных.");
+            return;
+        }
+        await JS.InvokeVoidAsync("open", Api.ReportUrl(id), "_blank");
+    }
+}

@@ -1,0 +1,455 @@
+@page "/"
+@inject BookingApi Api
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="bk-toolbar">
+    <div class="bk-field">
+        <label>Тип зоны</label>
+        <select @bind="_selectedTypeId" @bind:after="OnTypeChanged">
+            @foreach (var t in _zoneTypes)
+            {
+                <option value="@t.Id">@t.Name</option>
+            }
+        </select>
+    </div>
+
+    @if (_singleZoneId > 0)
+    {
+        <button class="bk-btn bk-btn--ghost" @onclick="BackToType" title="Показать все зоны типа">
+            ← @SingleZoneName · ко всем
+        </button>
+    }
+    else
+    {
+        <span style="align-self:center; color:#8a93a6; font-size:12px;">Клик по названию зоны в шапке — открыть её отдельно</span>
+    }
+
+    <button class="bk-btn" @onclick="NewBooking">+ Новая запись</button>
+
+    <div class="bk-legend">
+        @foreach (var l in _labels)
+        {
+            <span class="bk-chip"><span class="bk-chip__dot" style="background:@l.Color"></span>@l.Name</span>
+        }
+    </div>
+</div>
+
+<div class="bk-workspace">
+    <aside class="bk-sidebar">
+        <MiniCalendar @ref="_miniCal" OnRangeSelected="OnRangeSelected" />
+        @if (_periodDays == 1 && _savedPeriod is { } sp && sp.end.Date > sp.start.Date)
+        {
+            <button class="bk-btn bk-btn--ghost bk-restore" @onclick="RestorePeriod"
+                    title="Вернуться к выделенному периоду">
+                ↩ Вернуть период @sp.start.ToString("dd.MM") – @sp.end.ToString("dd.MM")
+            </button>
+        }
+        @if (_selStart is not null)
+        {
+            <div class="bk-selbar">
+                <span>Выбрано: <b>@RangeText</b></span>
+            </div>
+        }
+    </aside>
+
+    <div class="bk-scheduler @(_periodDays == 1 ? "bk-scheduler--grouped" : "")">
+        <SfSchedule TValue="SchedulerEvent" @ref="_schedule" @key="_schedKey" Width="100%" Height="100%"
+                    @bind-SelectedDate="SelectedDate" @bind-CurrentView="_view"
+                    StartHour="08:00" EndHour="23:00" TimeFormat="HH:mm" FirstDayOfWeek="1">
+            <ScheduleViews>
+                <ScheduleView Option="View.Day" Interval="@_periodDays" />
+            </ScheduleViews>
+
+            <ScheduleGroup Resources="@_groupResources" />
+            <ScheduleResources>
+                <ScheduleResource TItem="SchedulerResource" TValue="int" DataSource="@_visibleResources"
+                                  Field="ResourceId" Title="Место" Name="Places"
+                                  TextField="DisplayName" IdField="Id" ColorField="Color" />
+            </ScheduleResources>
+
+            <ScheduleEventSettings DataSource="@Events" EnableTooltip="true">
+                <ChildContent>
+                    <ScheduleField Id="Id">
+                        <FieldSubject Name="Subject" />
+                        <FieldStartTime Name="StartTime" />
+                        <FieldEndTime Name="EndTime" />
+                    </ScheduleField>
+                </ChildContent>
+                <TooltipTemplate>
+                    @{ var ev = context as SchedulerEvent; }
+                    @if (ev is not null)
+                    {
+                        <div class="bk-tooltip">
+                            <div class="bk-tooltip__title">@ev.Subject</div>
+                            @if (!string.IsNullOrWhiteSpace(ev.RoomName))
+                            {
+                                <div class="bk-tooltip__row">Комната: @ev.RoomName</div>
+                            }
+                            <div class="bk-tooltip__row">@ev.StartTime.ToString("dd.MM HH:mm")–@ev.EndTime.ToString("dd.MM HH:mm")</div>
+                            @if (!string.IsNullOrWhiteSpace(ev.ClientName))
+                            {
+                                <div class="bk-tooltip__row">Клиент: @ev.ClientName</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(ev.WaiterName))
+                            {
+                                <div class="bk-tooltip__row">Официант: @ev.WaiterName</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(ev.ServicesSummary))
+                            {
+                                <div class="bk-tooltip__row">@ev.ServicesSummary</div>
+                            }
+                            @if (ev.TotalPrice > 0)
+                            {
+                                <div class="bk-tooltip__row">Сумма: @ev.TotalPrice.ToString("0.##")</div>
+                            }
+                            <span class="bk-tooltip__label" style="background:@ev.CategoryColor">@ev.LabelName</span>
+                        </div>
+                    }
+                </TooltipTemplate>
+            </ScheduleEventSettings>
+
+            <ScheduleEvents TValue="SchedulerEvent"
+                            OnPopupOpen="OnPopupOpen"
+                            OnActionBegin="OnActionBegin"
+                            EventRendered="OnEventRendered"
+                            Navigating="OnNavigating" />
+        </SfSchedule>
+    </div>
+</div>
+
+<BookingEditor @ref="_editor" Resources="_allResources" Groups="_groups" Waiters="_waiters" Labels="_labels" OnChanged="ReloadAsync" />
+
+@code {
+    private SfSchedule<SchedulerEvent>? _schedule;
+    private BookingEditor? _editor = default!;
+
+    private DateTime SelectedDate { get; set; } = DateTime.Today;
+    private View _view = View.Day;
+
+    private List<ResourceDto> _allResources = new();
+    private List<ServiceGroupDto> _groups = new();
+    private List<ClientDto> _waiters = new();
+    private List<LabelDto> _labels = new();
+
+    private List<SchedulerResource> _allResourceModels = new();
+    private Dictionary<int, string> _roomNames = new();
+    private DotNetObjectReference<Scheduler>? _selfRef;
+    private List<SchedulerEvent> Events { get; set; } = new();
+    private Dictionary<int, BookingEventDto> _dtoById = new();
+    private List<BookingEventDto> _allDtos = new();
+
+    private List<ZoneTypeDto> _zoneTypes = new();
+    private int _selectedTypeId;
+    private int _singleZoneId;
+    private HashSet<int> _visibleZoneIds = new();
+
+    private int _periodDays = 1;
+
+    private string _schedKey => $"{_selectedTypeId}|{_singleZoneId}|{_periodDays}";
+
+    private string SingleZoneName => _roomNames.TryGetValue(_singleZoneId, out var n) ? n : "зона";
+
+    private string[] _groupResources => _periodDays == 1 ? new[] { "Places" } : Array.Empty<string>();
+
+    private DateTime? _selStart;
+    private DateTime? _selEnd;
+    private (DateTime start, DateTime end)? _savedPeriod;
+    private MiniCalendar? _miniCal;
+
+    private string RangeText => _selStart is null
+        ? ""
+        : (_selEnd is { } e && e.Date != _selStart.Value.Date
+            ? $"{_selStart:dd.MM.yyyy} – {e:dd.MM.yyyy}"
+            : $"{_selStart:dd.MM.yyyy}");
+
+    private List<SchedulerResource> _visibleResources = new();
+
+    private void RecomputeVisibleResources()
+    {
+        var type = _zoneTypes.FirstOrDefault(t => t.Id == _selectedTypeId);
+        var typeZoneIds = type is not null
+            ? type.Zones.Select(z => z.Id).ToList()
+            : _allResourceModels.Select(r => r.Id).ToList();
+
+        if (_singleZoneId > 0 && typeZoneIds.Contains(_singleZoneId))
+            typeZoneIds = new List<int> { _singleZoneId };
+
+        var order = typeZoneIds.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        _visibleResources = _allResourceModels
+            .Where(r => order.ContainsKey(r.Id))
+            .OrderBy(r => order[r.Id])
+            .ToList();
+        _visibleZoneIds = _visibleResources.Select(r => r.Id).ToHashSet();
+    }
+
+    private static readonly string[] RoomPalette =
+        { "#4F86C6", "#6A59F0", "#C77DBB", "#6FB07F", "#E0A458", "#5FB0C8", "#E08D8D", "#8E7CC3" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allResources = await Api.GetResourcesAsync();
+        _zoneTypes = await Api.GetZoneTypesAsync();
+        _groups = await Api.GetGroupsAsync();
+        _waiters = await Api.GetWaitersAsync();
+        _labels = await Api.GetLabelsAsync();
+        _roomNames = _allResources.ToDictionary(r => r.Id, r => r.DisplayName);
+        _allResourceModels = _allResources
+            .Select((r, i) => new SchedulerResource
+            {
+                Id = r.Id,
+                DisplayName = r.DisplayName,
+                Color = r.Color ?? RoomPalette[i % RoomPalette.Length]
+            })
+            .ToList();
+        _selectedTypeId = _zoneTypes.FirstOrDefault()?.Id ?? 0;
+        _singleZoneId = 0;
+        RecomputeVisibleResources();
+        _selStart = _selEnd = SelectedDate;
+        _periodDays = 1;
+        await LoadAsync(SelectedDate);
+    }
+
+    private async Task LoadAsync(DateTime anchor)
+    {
+        var from = anchor.Date.AddDays(-62);
+        var to = anchor.Date.AddDays(93);
+
+        _allDtos = await Api.GetBookingsAsync(from, to, null, null);
+        _dtoById = _allDtos.ToDictionary(d => d.Id);
+        RebuildEvents();
+    }
+
+    private void RebuildEvents()
+    {
+        Events = _allDtos.Where(d => _visibleZoneIds.Contains(d.ResourceId)).Select(ToEvent).ToList();
+        StateHasChanged();
+    }
+
+    private async Task ReloadAsync()
+    {
+        await JS.InvokeVoidAsync("bkClearGridSelection");
+        await LoadAsync(SelectedDate);
+    }
+
+    private void OnTypeChanged()
+    {
+        _singleZoneId = 0;
+        RecomputeVisibleResources();
+        RebuildEvents();
+    }
+
+    private void BackToType()
+    {
+        _singleZoneId = 0;
+        RecomputeVisibleResources();
+        RebuildEvents();
+    }
+
+    [JSInvokable]
+    public void DrillZone(int groupIndex)
+    {
+        if (_singleZoneId > 0)
+            _singleZoneId = 0;
+        else if (groupIndex >= 0 && groupIndex < _visibleResources.Count)
+            _singleZoneId = _visibleResources[groupIndex].Id;
+        RecomputeVisibleResources();
+        RebuildEvents();
+    }
+
+    private async Task OnRangeSelected(MiniCalendar.DateRange range)
+    {
+        _selStart = range.Start;
+        _selEnd = range.End;
+        SelectedDate = range.Start;
+
+        _periodDays = Math.Clamp((range.End.Date - range.Start.Date).Days + 1, 1, 92);
+        if (range.End.Date > range.Start.Date)
+            _savedPeriod = (range.Start.Date, range.End.Date);
+
+        await LoadAsync(SelectedDate);
+    }
+
+    private async Task RestorePeriod()
+    {
+        if (_savedPeriod is not { } sp) return;
+        _selStart = sp.start;
+        _selEnd = sp.end;
+        SelectedDate = sp.start;
+        _periodDays = Math.Clamp((sp.end.Date - sp.start.Date).Days + 1, 1, 92);
+        _miniCal?.SetSelection(sp.start, sp.end);
+        await LoadAsync(SelectedDate);
+        StateHasChanged();
+    }
+
+    private SchedulerEvent ToEvent(BookingEventDto d) => new()
+    {
+        Id = d.Id,
+        Subject = (d.IsCancelled ? "✖ " : "") + (string.IsNullOrWhiteSpace(d.Title) ? "(без имени)" : d.Title),
+        StartTime = d.TimeFrom,
+        EndTime = d.TimeTo,
+        ResourceId = d.ResourceId,
+        RoomName = _roomNames.TryGetValue(d.ResourceId, out var rn) ? rn : "",
+        CategoryColor = string.IsNullOrWhiteSpace(d.Color) ? "#E3E8EF" : d.Color,
+        LabelName = d.IsCancelled ? "Отменена" : d.LabelName,
+        IsCancelled = d.IsCancelled,
+        ClientName = d.ClientName,
+        WaiterName = d.WaiterName,
+        TotalPrice = d.TotalPrice,
+        Note = d.Note,
+        ServicesSummary = d.Services.Count == 0
+            ? ""
+            : string.Join(", ", d.Services.Select(s => s.ServiceName))
+    };
+
+    private void OnEventRendered(EventRenderedArgs<SchedulerEvent> args)
+    {
+        var ev = args.Data;
+        var color = ev?.CategoryColor ?? "#E3E8EF";
+        var style = ev?.IsCancelled == true
+            ? $"background-color:#f1f2f6;border:1px dashed #9aa3b2;color:#8b93a3;text-decoration:line-through;opacity:.8;"
+            : $"background-color:{color};border:1px solid rgba(0,0,0,.14);color:#1f2733;";
+        args.Attributes = new Dictionary<string, object>
+        {
+            { "style", style },
+            { "title", ev is null ? "" : BuildTitle(ev) }
+        };
+    }
+
+    private static string BuildTitle(SchedulerEvent ev)
+    {
+        var lines = new List<string> { ev.Subject };
+        if (ev.IsCancelled) lines.Add("БРОНЬ ОТМЕНЕНА");
+        if (!string.IsNullOrWhiteSpace(ev.RoomName)) lines.Add($"Комната: {ev.RoomName}");
+        lines.Add($"{ev.StartTime:dd.MM HH:mm}–{ev.EndTime:dd.MM HH:mm}");
+        if (!string.IsNullOrWhiteSpace(ev.ClientName)) lines.Add($"Клиент: {ev.ClientName}");
+        if (!string.IsNullOrWhiteSpace(ev.WaiterName)) lines.Add($"Официант: {ev.WaiterName}");
+        if (!string.IsNullOrWhiteSpace(ev.ServicesSummary)) lines.Add(ev.ServicesSummary);
+        if (ev.TotalPrice > 0) lines.Add($"Сумма: {ev.TotalPrice:0.##}");
+        return string.Join("\n", lines);
+    }
+
+    private async Task OnNavigating(NavigatingEventArgs args)
+    {
+        var target = args.CurrentDate == default ? SelectedDate : args.CurrentDate;
+        await LoadAsync(target);
+    }
+
+    private async Task OnPopupOpen(PopupOpenEventArgs<SchedulerEvent> args)
+    {
+        if (args.Type is PopupType.Editor or PopupType.QuickInfo or PopupType.ViewEventInfo)
+        {
+            args.Cancel = true;
+            var data = args.Data;
+            if (data is not null && data.Id > 0 && _dtoById.TryGetValue(data.Id, out var dto))
+            {
+                await _editor!.OpenForEditAsync(dto);
+            }
+        }
+        else if (args.Type is PopupType.DeleteAlert)
+        {
+            args.Cancel = true;
+        }
+    }
+
+    private async Task OnActionBegin(ActionEventArgs<SchedulerEvent> args)
+    {
+        if (args.ActionType == ActionType.EventChange)
+        {
+            args.Cancel = true;
+            var changed = args.ChangedRecords?.FirstOrDefault();
+            if (changed is not null && _dtoById.TryGetValue(changed.Id, out var dto))
+            {
+                if (!dto.CanEdit) { await LoadAsync(SelectedDate); return; }
+
+                var req = new BookingUpsertRequest
+                {
+                    ResourceId = changed.ResourceId > 0 ? changed.ResourceId : dto.ResourceId,
+                    TimeFrom = changed.StartTime,
+                    TimeToOverride = changed.EndTime,
+                    Title = dto.Title,
+                    ClientVisitorId = dto.ClientVisitorId,
+                    WaiterVisitorId = dto.WaiterVisitorId,
+                    Label = dto.Label,
+                    Note = dto.Note,
+                    Services = dto.Services.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, Quantity = s.Quantity, IsDone = s.IsDone }).ToList()
+                };
+                var res = await Api.UpdateAsync(dto.Id, req);
+                if (!res.Ok && res.Conflicts.Count > 0)
+                {
+                    var c = res.Conflicts[0];
+                    await JS.InvokeVoidAsync("alert",
+                        $"Нельзя перенести: {c.ResourceName} занята ({(string.IsNullOrWhiteSpace(c.Title) ? "бронь" : c.Title)}, {c.TimeFrom:HH:mm}–{c.TimeTo:HH:mm}).");
+                }
+                await LoadAsync(SelectedDate);
+            }
+        }
+    }
+
+    private async Task NewBooking()
+    {
+        var resourceId = _visibleResources.FirstOrDefault()?.Id ?? _allResourceModels.FirstOrDefault()?.Id ?? 0;
+        var start = SelectedDate.Date.AddHours(10);
+        await _editor!.OpenForCreateAsync(resourceId, start);
+    }
+
+    [JSInvokable]
+    public async Task OpenGridSelection()
+    {
+        var sel = await JS.InvokeAsync<GridSelection?>("bkGetGridSelection");
+        if (sel is null || sel.GroupIndices.Length == 0) return;
+
+        var start = DateTimeOffset.FromUnixTimeMilliseconds(sel.StartMs).UtcDateTime;
+        var end = DateTimeOffset.FromUnixTimeMilliseconds(sel.EndMs).UtcDateTime;
+
+        var rooms = sel.GroupIndices
+            .Where(i => i >= 0 && i < _visibleResources.Count)
+            .Select(i => _visibleResources[i].Id)
+            .Distinct()
+            .ToList();
+        if (rooms.Count == 0) return;
+
+        await _editor!.OpenForCreateMultiAsync(rooms, start, end);
+        StateHasChanged();
+    }
+
+    private sealed class GridSelection
+    {
+        public long StartMs { get; set; }
+        public long EndMs { get; set; }
+        public int[] GroupIndices { get; set; } = Array.Empty<int>();
+    }
+
+    private bool? _lastGridSelEnabled;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("bkSetupDateClick", _selfRef);
+            await JS.InvokeVoidAsync("bkSetupResourceClick", _selfRef);
+        }
+
+        var enable = _periodDays == 1;
+        if (_lastGridSelEnabled != enable)
+        {
+            _lastGridSelEnabled = enable;
+            await JS.InvokeVoidAsync("bkSetGridSelEnabled", enable);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OpenDay(double epochMs)
+    {
+        var date = DateTimeOffset.FromUnixTimeMilliseconds((long)epochMs).UtcDateTime.Date;
+        SelectedDate = date;
+        _selStart = _selEnd = date;
+        _periodDays = 1;
+        _miniCal?.SetSelection(date, date);
+        await LoadAsync(date);
+        StateHasChanged();
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
+}
