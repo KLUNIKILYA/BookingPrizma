@@ -23,6 +23,7 @@ public class BookingDbContext : DbContext
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<TicketZone> TicketZones => Set<TicketZone>();
     public DbSet<TicketFolder> TicketFolders => Set<TicketFolder>();
+    public DbSet<BookingPrepaymentType> PrepaymentTypes => Set<BookingPrepaymentType>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -161,6 +162,13 @@ public class BookingDbContext : DbContext
         {
             e.ToTable("TicketZone", t => t.ExcludeFromMigrations());
             e.HasKey(x => new { x.IdTicket, x.IdZone });
+        });
+
+        b.Entity<BookingPrepaymentType>(e =>
+        {
+            e.ToTable("Booking_PrepaymentType");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(50);
         });
     }
 }

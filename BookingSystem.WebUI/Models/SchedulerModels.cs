@@ -18,6 +18,9 @@ public class SchedulerEvent
     public string? Note { get; set; }
     public decimal TotalPrice { get; set; }
 
+    public string? ClientInfo { get; set; }
+    public string? GuestsCount { get; set; }
+
     public bool IsCancelled { get; set; }
 }
 

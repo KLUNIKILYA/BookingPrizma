@@ -36,6 +36,9 @@ public class BookingApi
     public async Task<List<ServiceGroupDto>> GetGroupsAsync() =>
         await _http.GetFromJsonAsync<List<ServiceGroupDto>>("api/catalog/groups") ?? new();
 
+    public async Task<List<PrepaymentTypeDto>> GetPrepaymentTypesAsync() =>
+    await _http.GetFromJsonAsync<List<PrepaymentTypeDto>>("api/bookings/prepayment-types") ?? new();
+
     public async Task<List<ServiceDto>> GetServicesAsync(int? groupId)
     {
         var url = groupId.HasValue ? $"api/catalog/services?groupId={groupId}" : "api/catalog/services";
@@ -143,4 +146,5 @@ public class BookingApi
         if (excludeId.HasValue) url += $"&excludeId={excludeId}";
         return await _http.GetFromJsonAsync<List<BookingConflictDto>>(url) ?? new();
     }
+
 }

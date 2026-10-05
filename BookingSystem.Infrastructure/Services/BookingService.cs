@@ -37,10 +37,16 @@ public class BookingService : IBookingService
 
         var clientIds = extras.Values.Where(e => e.ClientVisitorId.HasValue)
             .Select(e => e.ClientVisitorId!.Value).Distinct().ToList();
-        var clientNames = clientIds.Count == 0
-            ? new Dictionary<int, string>()
-            : await _db.CashboxVisitors.AsNoTracking().Where(v => clientIds.Contains(v.IdVisitor))
-                .ToDictionaryAsync(v => v.IdVisitor, v => (v.Surname + " " + v.Name).Trim(), ct);
+
+        var clients = clientIds.Count == 0
+            ? new Dictionary<int, (string Name, string? Info)>()
+            : await _db.CashboxVisitors.AsNoTracking()
+                .Where(v => clientIds.Contains(v.IdVisitor))
+                .Select(v => new { v.IdVisitor, Name = (v.Surname + " " + v.Name).Trim(), v.Info })
+                .ToDictionaryAsync(x => x.IdVisitor, x => (x.Name, x.Info), ct);
+
+        var clientNames = clients.ToDictionary(c => c.Key, c => c.Value.Name);
+        var clientInfos = clients.ToDictionary(c => c.Key, c => c.Value.Info);
 
         var waiterIds = extras.Values.Where(e => e.WaiterLoginId.HasValue)
             .Select(e => e.WaiterLoginId!.Value).Distinct().ToList();
@@ -55,7 +61,7 @@ public class BookingService : IBookingService
             .Select(r => Map(r,
                 extras.GetValueOrDefault(r.Id),
                 svcByRes.GetValueOrDefault(r.Id),
-                clientNames, waiterNames, labels))
+                clientNames, waiterNames, labels, clientInfos))
             .ToList();
     }
 
@@ -64,6 +70,12 @@ public class BookingService : IBookingService
             l => l.Id,
             l => new LabelDto { Id = l.Id, Name = l.Name, Color = l.Color },
             ct);
+
+    public async Task<List<PrepaymentTypeDto>> GetPrepaymentTypesAsync() =>
+    await _db.PrepaymentTypes.AsNoTracking()
+        .OrderBy(p => p.Id)
+        .Select(p => new PrepaymentTypeDto { Id = p.Id, Name = p.Name })
+        .ToListAsync();
 
     public async Task<BookingEventDto> CreateAsync(BookingUpsertRequest request, CancellationToken ct = default)
     {
@@ -94,12 +106,15 @@ public class BookingService : IBookingService
             CelebrantBirthDate = request.CelebrantBirthDate,
             IsPrepaid = request.IsPrepaid,
             PrepaidAmount = request.IsPrepaid ? request.PrepaidAmount : null,
+            PrepaymentTypeId = request.IsPrepaid ? request.PrepaymentTypeId : null,
+            GuestsCount = NormalizeGuests(request.GuestsCount),
             CreatedAt = now,
             UpdatedAt = now
         };
         await ApplyTariffAsync(extra, reservation.ZoneId, reservation.DateFrom, reservation.DateTo, ct);
         _db.ResExtras.Add(extra);
         await AddServicesAsync(reservation.Id, request.Services, ct);
+        await UpdateClientInfoAsync(request.ClientVisitorId, request.ClientInfo, ct);
         await _db.SaveChangesAsync(ct);
 
         return (await GetByIdAsync(reservation.Id, ct))!;
@@ -132,8 +147,12 @@ public class BookingService : IBookingService
         extra.CelebrantBirthDate = request.CelebrantBirthDate;
         extra.IsPrepaid = request.IsPrepaid;
         extra.PrepaidAmount = request.IsPrepaid ? request.PrepaidAmount : null;
+        extra.PrepaymentTypeId = request.IsPrepaid ? request.PrepaymentTypeId : null;
         await ApplyTariffAsync(extra, reservation.ZoneId, reservation.DateFrom, reservation.DateTo, ct);
+        extra.GuestsCount = NormalizeGuests(request.GuestsCount);
         extra.UpdatedAt = DateTime.Now;
+
+        await UpdateClientInfoAsync(request.ClientVisitorId, request.ClientInfo, ct);
 
         var oldServices = await _db.ResServices.Where(s => s.ReservationId == id).ToListAsync(ct);
         _db.ResServices.RemoveRange(oldServices);
@@ -312,6 +331,25 @@ public class BookingService : IBookingService
     private static string? NormalizeNote(string? note) =>
         string.IsNullOrWhiteSpace(note) ? null : note.Trim();
 
+    private static string? NormalizeGuests(string? v)
+    {
+        if (string.IsNullOrWhiteSpace(v)) return null;
+        v = v.Trim();
+        return v.Length > 50 ? v[..50] : v;
+    }
+
+    private async Task UpdateClientInfoAsync(int? clientId, string? info, CancellationToken ct)
+    {
+        if (clientId is not int id || info is null) return;
+
+        var visitor = await _db.CashboxVisitors.FirstOrDefaultAsync(v => v.IdVisitor == id, ct);
+        if (visitor is null) return;
+
+        var value = string.IsNullOrWhiteSpace(info) ? null : info.Trim();
+        if (value is { Length: > 500 }) value = value[..500];
+        visitor.Info = value;
+    }
+
     private async Task AddServicesAsync(int reservationId, List<BookingServiceSelection> selections, CancellationToken ct)
     {
         if (selections.Count == 0) return;
@@ -398,12 +436,18 @@ public class BookingService : IBookingService
             .Where(s => s.ReservationId == id).OrderBy(s => s.SortOrder).ToListAsync(ct);
 
         var clientNames = new Dictionary<int, string>();
+        var clientInfos = new Dictionary<int, string?>();
         if (extra?.ClientVisitorId is int cid)
         {
-            var name = await _db.CashboxVisitors.AsNoTracking()
-                .Where(v => v.IdVisitor == cid).Select(v => (v.Surname + " " + v.Name).Trim())
+            var client = await _db.CashboxVisitors.AsNoTracking()
+                .Where(v => v.IdVisitor == cid)
+                .Select(v => new { Name = (v.Surname + " " + v.Name).Trim(), v.Info })
                 .FirstOrDefaultAsync(ct);
-            if (name is not null) clientNames[cid] = name;
+            if (client is not null)
+            {
+                clientNames[cid] = client.Name;
+                clientInfos[cid] = client.Info;
+            }
         }
         var waiterNames = new Dictionary<int, string>();
         if (extra?.WaiterLoginId is int wid)
@@ -413,7 +457,7 @@ public class BookingService : IBookingService
             if (name is not null) waiterNames[wid] = name;
         }
 
-        return Map(r, extra, svc, clientNames, waiterNames, await LoadLabelsAsync(ct));
+        return Map(r, extra, svc, clientNames, waiterNames, await LoadLabelsAsync(ct), clientInfos);
     }
 
     private static BookingEventDto Map(
@@ -422,7 +466,8 @@ public class BookingService : IBookingService
         List<BookingResServiceItem>? svc,
         IReadOnlyDictionary<int, string> clientNames,
         IReadOnlyDictionary<int, string> waiterNames,
-        IReadOnlyDictionary<int, LabelDto> labels)
+        IReadOnlyDictionary<int, LabelDto> labels,
+        IReadOnlyDictionary<int, string?>? clientInfos = null)
     {
         var label = ex?.Label ?? BookingLabel.None;
         var labelName = labels.TryGetValue((int)label, out var ld) ? ld.Name : BookingLabelInfo.Name(label);
@@ -434,6 +479,11 @@ public class BookingService : IBookingService
 
         string? clientName = null;
         if (ex?.ClientVisitorId is int cid) clientNames.TryGetValue(cid, out clientName);
+
+        string? clientInfo = null;                                            
+        if (ex?.ClientVisitorId is int cid2 && clientInfos is not null)        
+            clientInfos.TryGetValue(cid2, out clientInfo);
+
         string? waiterName = null;
         if (ex?.WaiterLoginId is int wid) waiterNames.TryGetValue(wid, out waiterName);
 
@@ -461,6 +511,7 @@ public class BookingService : IBookingService
             Note = r.Info,
             ClientVisitorId = ex?.ClientVisitorId,
             ClientName = clientName,
+            ClientInfo = clientInfo,
             WaiterVisitorId = ex?.WaiterLoginId,
             WaiterName = waiterName,
             Services = services,
@@ -471,8 +522,10 @@ public class BookingService : IBookingService
             CelebrantBirthDate = ex?.CelebrantBirthDate,
             IsPrepaid = ex?.IsPrepaid ?? false,
             PrepaidAmount = ex?.PrepaidAmount,
+            PrepaymentTypeId = ex?.PrepaymentTypeId,
             IsCancelled = ex?.IsCancelled ?? false,
             CancelledAt = ex?.CancelledAt,
+            GuestsCount = ex?.GuestsCount,
             TotalPrice = services.Sum(s => s.Price * s.Quantity) + (ex?.TariffPrice ?? 0m),
             CanEdit = true
         };

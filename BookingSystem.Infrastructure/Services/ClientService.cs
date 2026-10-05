@@ -28,7 +28,8 @@ public class ClientService : IClientService
             {
                 Id = v.IdVisitor,
                 FullName = (v.Surname + " " + v.Name).Trim(),
-                Phone = v.Info
+                Phone = v.Info,
+                Info = v.Info
             })
             .ToListAsync(ct);
     }
@@ -52,7 +53,8 @@ public class ClientService : IClientService
         {
             Id = visitor.IdVisitor,
             FullName = (visitor.Surname + " " + visitor.Name).Trim(),
-            Phone = visitor.Info
+            Phone = visitor.Info,
+            Info = visitor.Info
         };
     }
 }

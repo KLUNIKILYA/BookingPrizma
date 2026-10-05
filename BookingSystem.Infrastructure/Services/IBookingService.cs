@@ -24,4 +24,6 @@ public interface IBookingService
 
     Task<AvailabilityDto> GetAvailabilityAsync(
         DateTime from, DateTime to, int? excludeId, CancellationToken ct = default);
+
+    Task<List<PrepaymentTypeDto>> GetPrepaymentTypesAsync();
 }

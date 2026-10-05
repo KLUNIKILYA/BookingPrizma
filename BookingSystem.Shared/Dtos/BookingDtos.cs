@@ -28,6 +28,7 @@ public class BookingEventDto
     public string? Note { get; set; }
     public int? ClientVisitorId { get; set; }
     public string? ClientName { get; set; }
+    public string? ClientInfo { get; set; }
 
     public int? WaiterVisitorId { get; set; }
     public string? WaiterName { get; set; }
@@ -44,9 +45,12 @@ public class BookingEventDto
 
     public bool IsPrepaid { get; set; }
     public decimal? PrepaidAmount { get; set; }
+    public int? PrepaymentTypeId { get; set; }
 
     public bool IsCancelled { get; set; }
     public DateTime? CancelledAt { get; set; }
+
+    public string? GuestsCount { get; set; }
 
     public bool CanEdit { get; set; }
 }
@@ -94,6 +98,7 @@ public class BookingUpsertRequest
 
     public string Title { get; set; } = string.Empty;
     public int? ClientVisitorId { get; set; }
+    public string? ClientInfo { get; set; }
     public int? WaiterVisitorId { get; set; }
     public BookingLabel Label { get; set; } = BookingLabel.None;
     public string? Note { get; set; }
@@ -103,6 +108,15 @@ public class BookingUpsertRequest
 
     public bool IsPrepaid { get; set; }
     public decimal? PrepaidAmount { get; set; }
+    public int? PrepaymentTypeId { get; set; }
+
+    public string? GuestsCount { get; set; }
 
     public List<BookingServiceSelection> Services { get; set; } = new();
+}
+
+public class PrepaymentTypeDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
 }

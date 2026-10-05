@@ -71,6 +71,17 @@
                         }
                     </div>
 
+                    <div class="bk-form-row">
+                        <label>Информация о клиенте</label>
+                        <textarea class="bk-input bk-client-info" rows="3"
+                                    placeholder="Нет информации" @bind="_clientInfo"></textarea>
+                    </div>
+
+                    <div class="bk-form-row">
+                        <label>Количество гостей</label>
+                        <input maxlength="50" @bind="_guestsCount" placeholder="необязательно" />
+                    </div>
+
                     @if (_newClientMode)
                     {
                         <div class="bk-newclient">
@@ -230,12 +241,24 @@
                     <div class="bk-form-row">
                         <label>Предоплата</label>
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <input type="checkbox" id="bk-prepaid" @bind="_isPrepaid" />
+                            <input type="checkbox" id="bk-prepaid" @bind="_isPrepaid" @bind:after="OnPrepaidChanged" />
                             <label for="bk-prepaid" style="margin:0; font-weight:normal; white-space:nowrap;">внесена</label>
                             <input type="number" min="0" step="0.01" class="bk-input" style="flex:1;"
                                    placeholder="сумма" @bind="_prepaidAmount" disabled="@(!_isPrepaid)" />
                         </div>
                     </div>
+
+                    <div class="bk-form-row">
+                        <label>Тип предоплаты</label>
+                        <select @bind="_prepayTypeId" disabled="@(!_isPrepaid)">
+                            <option value="0">— не выбран —</option>
+                            @foreach (var p in PrepaymentTypes)
+                            {
+                                <option value="@p.Id">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+
                 </div>
 
                 <div class="bk-order">
@@ -324,6 +347,7 @@
     [Parameter] public List<ServiceGroupDto> Groups { get; set; } = new();
     [Parameter] public List<ClientDto> Waiters { get; set; } = new();
     [Parameter] public List<LabelDto> Labels { get; set; } = new();
+    [Parameter] public List<PrepaymentTypeDto> PrepaymentTypes { get; set; } = new();
 
     [Parameter] public EventCallback OnChanged { get; set; }
 
@@ -333,6 +357,7 @@
     private bool _readOnly;
     private string? _error;
     private int? _editingId;
+    private int _prepayTypeId;
 
     private string _title = "";
     private readonly HashSet<int> _roomIds = new();
@@ -370,6 +395,11 @@
         }
     }
 
+    private void OnPrepaidChanged()
+    {
+        if (!_isPrepaid) _prepayTypeId = 0;
+    }
+
     private List<int> SelectedRooms() =>
         _editingId.HasValue
             ? (_singleRoomId > 0 ? new List<int> { _singleRoomId } : new List<int>())
@@ -395,9 +425,11 @@
     private DateTime? _celebrantBirth;
     private bool _isPrepaid;
     private decimal _prepaidAmount;
+    private string? _guestsCount;
 
     private int? _clientId;
     private string _clientName = "";
+    private string? _clientInfo;
     private string _clientQuery = "";
     private List<ClientDto> _suggestions = new();
     private bool _showSuggest;
@@ -556,7 +588,7 @@
         _labelValue = 0;
         _note = null;
         _celebrantName = null; _celebrantBirth = null; _isPrepaid = false; _prepaidAmount = 0;
-        _clientId = null; _clientName = ""; _clientQuery = ""; _suggestions.Clear(); _showSuggest = false;
+        _clientId = null; _clientName = ""; _clientInfo = null; _clientQuery = ""; _suggestions.Clear(); _showSuggest = false;
         _newClientMode = false; _ncSurname = ""; _ncName = ""; _ncPhone = "";
         _selected.Clear();
         _tariffsByRoom = new();
@@ -565,6 +597,8 @@
         _busyWaiters.Clear();
         _error = null;
         _visible = true;
+        _guestsCount = null;
+        _prepayTypeId = 0;
     }
 
     public async Task OpenForEditAsync(BookingEventDto dto)
@@ -586,8 +620,11 @@
         _celebrantBirth = dto.CelebrantBirthDate;
         _isPrepaid = dto.IsPrepaid;
         _prepaidAmount = dto.PrepaidAmount ?? 0;
+        _prepayTypeId = dto.PrepaymentTypeId ?? 0;
+        _guestsCount = dto.GuestsCount;
         _clientId = dto.ClientVisitorId;
         _clientName = dto.ClientName ?? "";
+        _clientInfo = dto.ClientInfo;
         _clientQuery = dto.ClientName ?? "";
         _suggestions.Clear(); _showSuggest = false;
         _newClientMode = false; _ncSurname = ""; _ncName = ""; _ncPhone = "";
@@ -693,6 +730,7 @@
         _clientId = c.Id;
         _clientName = c.FullName;
         _clientQuery = c.FullName;
+        _clientInfo = c.Info;  
         _title = c.FullName;
         _showSuggest = false;
         _newClientMode = false;
@@ -748,6 +786,7 @@
                 TimeToOverride = EndDateTime,
                 Title = _title.Trim(),
                 ClientVisitorId = _clientId,
+                ClientInfo = _clientInfo,
                 WaiterVisitorId = _waiterId > 0 ? _waiterId : null,
                 Label = (BookingLabel)_labelValue,
                 Note = _note,
@@ -755,6 +794,8 @@
                 CelebrantBirthDate = _celebrantBirth,
                 IsPrepaid = _isPrepaid,
                 PrepaidAmount = _isPrepaid ? _prepaidAmount : (decimal?)null,
+                PrepaymentTypeId = _isPrepaid && _prepayTypeId > 0 ? _prepayTypeId : null,
+                GuestsCount = _guestsCount,
                 Services = _selected.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, Quantity = s.Quantity, IsDone = s.IsDone, IsTicket = s.IsTicket }).ToList()
             };
 

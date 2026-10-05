@@ -44,6 +44,12 @@ public class BookingResExtra
     /// <summary>Бронь отменена (время не блокирует, показывается перечёркнутой).</summary>
     public bool IsCancelled { get; set; }
 
+    /// <summary>Количество гостей.</summary>
+    public string? GuestsCount { get; set; }
+
+    /// <summary>Тип предоплаты.</summary>
+    public int? PrepaymentTypeId { get; set; }
+
     /// <summary>Когда отменена.</summary>
     public DateTime? CancelledAt { get; set; }
 

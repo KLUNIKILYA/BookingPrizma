@@ -103,10 +103,37 @@
                             {
                                 <div class="bk-tooltip__row">Сумма: @ev.TotalPrice.ToString("0.##")</div>
                             }
+                            @if (!string.IsNullOrWhiteSpace(ev.ClientInfo))
+                            {
+                                <div class="bk-tooltip__row">Инфо: @ev.ClientInfo</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(ev.GuestsCount))
+                            {
+                                <div class="bk-tooltip__row">Гостей: @ev.GuestsCount</div>
+                            }
                             <span class="bk-tooltip__label" style="background:@ev.CategoryColor">@ev.LabelName</span>
                         </div>
                     }
                 </TooltipTemplate>
+
+                 <Template>
+                    @{ var item = context as SchedulerEvent; }
+                    @if (item is not null)
+                    {
+                        <div class="bk-ev">
+                            <div class="bk-ev__time">@item.StartTime.ToString("HH:mm")–@item.EndTime.ToString("HH:mm")</div>
+                            <div class="bk-ev__title">@item.Subject</div>
+                            @if (!string.IsNullOrWhiteSpace(item.ClientInfo))
+                            {
+                                <div class="bk-ev__info">@item.ClientInfo</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(item.GuestsCount))
+                            {
+                                <div class="bk-ev__info">гостей: @item.GuestsCount</div>
+                            }
+                        </div>
+                    }
+                </Template>
             </ScheduleEventSettings>
 
             <ScheduleEvents TValue="SchedulerEvent"
@@ -115,10 +142,11 @@
                             EventRendered="OnEventRendered"
                             Navigating="OnNavigating" />
         </SfSchedule>
+
     </div>
 </div>
 
-<BookingEditor @ref="_editor" Resources="_allResources" Groups="_groups" Waiters="_waiters" Labels="_labels" OnChanged="ReloadAsync" />
+<BookingEditor @ref="_editor" Resources="_allResources" Groups="_groups" Waiters="_waiters" Labels="_labels" PrepaymentTypes="_prepayTypes" OnChanged="ReloadAsync" />
 
 @code {
     private SfSchedule<SchedulerEvent>? _schedule;
@@ -131,6 +159,7 @@
     private List<ServiceGroupDto> _groups = new();
     private List<ClientDto> _waiters = new();
     private List<LabelDto> _labels = new();
+    private List<PrepaymentTypeDto> _prepayTypes = new();
 
     private List<SchedulerResource> _allResourceModels = new();
     private Dictionary<int, string> _roomNames = new();
@@ -207,6 +236,7 @@
         RecomputeVisibleResources();
         _selStart = _selEnd = SelectedDate;
         _periodDays = 1;
+        _prepayTypes = await Api.GetPrepaymentTypesAsync();
         await LoadAsync(SelectedDate);
     }
 
@@ -297,6 +327,8 @@
         WaiterName = d.WaiterName,
         TotalPrice = d.TotalPrice,
         Note = d.Note,
+        ClientInfo = d.ClientInfo,
+        GuestsCount = d.GuestsCount,
         ServicesSummary = d.Services.Count == 0
             ? ""
             : string.Join(", ", d.Services.Select(s => s.ServiceName))
@@ -325,6 +357,8 @@
         if (!string.IsNullOrWhiteSpace(ev.ClientName)) lines.Add($"Клиент: {ev.ClientName}");
         if (!string.IsNullOrWhiteSpace(ev.WaiterName)) lines.Add($"Официант: {ev.WaiterName}");
         if (!string.IsNullOrWhiteSpace(ev.ServicesSummary)) lines.Add(ev.ServicesSummary);
+        if (!string.IsNullOrWhiteSpace(ev.ClientInfo)) lines.Add($"Инфо: {ev.ClientInfo}");
+        if (!string.IsNullOrWhiteSpace(ev.GuestsCount)) lines.Add($"Гостей: {ev.GuestsCount}");
         if (ev.TotalPrice > 0) lines.Add($"Сумма: {ev.TotalPrice:0.##}");
         return string.Join("\n", lines);
     }
@@ -372,7 +406,13 @@
                     WaiterVisitorId = dto.WaiterVisitorId,
                     Label = dto.Label,
                     Note = dto.Note,
-                    Services = dto.Services.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, Quantity = s.Quantity, IsDone = s.IsDone }).ToList()
+                    CelebrantName = dto.CelebrantName,
+                    CelebrantBirthDate = dto.CelebrantBirthDate,
+                    IsPrepaid = dto.IsPrepaid,
+                    PrepaidAmount = dto.PrepaidAmount,
+                    PrepaymentTypeId = dto.PrepaymentTypeId,
+                    GuestsCount = dto.GuestsCount,  
+                    Services = dto.Services.Select(s => new BookingServiceSelection { ServiceId = s.ServiceId, Quantity = s.Quantity, IsDone = s.IsDone, IsTicket = s.IsTicket }).ToList()
                 };
                 var res = await Api.UpdateAsync(dto.Id, req);
                 if (!res.Ok && res.Conflicts.Count > 0)

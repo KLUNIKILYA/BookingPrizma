@@ -130,4 +130,9 @@ public class BookingsController : ControllerBase
             return Conflict(new { error = ex.Message, conflicts = ex.Conflicts });
         }
     }
+
+    [HttpGet("prepayment-types")]
+    public async Task<ActionResult<List<PrepaymentTypeDto>>> Get() =>
+      await _bookings.GetPrepaymentTypesAsync();
+
 }
