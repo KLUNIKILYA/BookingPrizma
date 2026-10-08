@@ -25,6 +25,23 @@
     window.bkHideTrialBanner = hideBanners; // ручной вызов из Blazor при желании
 })();
 
+window.bkGetElementWidth = function (selector) {
+    const el = document.querySelector(selector);
+    return el ? Math.floor(el.getBoundingClientRect().width) : 0;
+};
+
+window.bkObserveResize = function (selector, dotNetRef) {
+    const el = document.querySelector(selector);
+    if (!el) return;
+    if (el._bkResizeObserver) el._bkResizeObserver.disconnect();
+
+    el._bkResizeObserver = new ResizeObserver(() => {
+        const w = Math.floor(el.getBoundingClientRect().width);
+        dotNetRef.invokeMethodAsync('OnContainerResized', w);
+    });
+    el._bkResizeObserver.observe(el);
+};
+
 // Клик по дате в шапке планировщика Syncfusion -> открыть этот день (вызов в Blazor).
 window.bkSetupDateClick = function (dotNetRef) {
     window.__bkDateRef = dotNetRef;

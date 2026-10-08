@@ -53,8 +53,8 @@
         }
     </aside>
 
-    <div class="bk-scheduler @(_periodDays == 1 ? "bk-scheduler--grouped" : "")">
-        <SfSchedule TValue="SchedulerEvent" @ref="_schedule" @key="_schedKey" Width="100%" Height="100%"
+    <div id="bkSchedulerWrap" class="bk-scheduler-scroll @(_periodDays == 1 ? "bk-scheduler--grouped" : "")">
+        <SfSchedule TValue="SchedulerEvent" @ref="_schedule" @key="_schedKey" Width="@ScheduleWidth" Height="100%"
                     @bind-SelectedDate="SelectedDate" @bind-CurrentView="_view"
                     StartHour="08:00" EndHour="23:00" TimeFormat="HH:mm" FirstDayOfWeek="1">
             <ScheduleViews>
@@ -167,6 +167,27 @@
     private List<SchedulerEvent> Events { get; set; } = new();
     private Dictionary<int, BookingEventDto> _dtoById = new();
     private List<BookingEventDto> _allDtos = new();
+
+    private int _containerWidth = 0;
+
+    [JSInvokable]
+    public void OnContainerResized(int width)
+    {
+        if (width == _containerWidth) return;
+        _containerWidth = width;
+        StateHasChanged();
+    }
+
+    private string ScheduleWidth
+    {
+        get
+        {
+            var needed = _visibleResources.Count * 180 + 120;
+            var min = _containerWidth > 0 ? _containerWidth : 900;
+            var w = Math.Max(needed, min);
+            return $"{w}px";
+        }
+    }
 
     private List<ZoneTypeDto> _zoneTypes = new();
     private int _selectedTypeId;
@@ -469,6 +490,14 @@
             _selfRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("bkSetupDateClick", _selfRef);
             await JS.InvokeVoidAsync("bkSetupResourceClick", _selfRef);
+
+            await JS.InvokeVoidAsync("bkObserveResize", "#bkSchedulerWrap", _selfRef);
+            var w = await JS.InvokeAsync<int>("bkGetElementWidth", "#bkSchedulerWrap");
+            if (w > 0)
+            {
+                _containerWidth = w;
+                StateHasChanged();
+            }
         }
 
         var enable = _periodDays == 1;
