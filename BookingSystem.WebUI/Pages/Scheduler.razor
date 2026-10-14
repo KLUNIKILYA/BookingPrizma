@@ -56,7 +56,7 @@
     <div id="bkSchedulerWrap" class="bk-scheduler-scroll @(_periodDays == 1 ? "bk-scheduler--grouped" : "")">
         <SfSchedule TValue="SchedulerEvent" @ref="_schedule" @key="_schedKey" Width="@ScheduleWidth" Height="100%"
                     @bind-SelectedDate="SelectedDate" @bind-CurrentView="_view"
-                    StartHour="08:00" EndHour="23:00" TimeFormat="HH:mm" FirstDayOfWeek="1">
+                    StartHour="10:00" EndHour="23:00" TimeFormat="HH:mm" FirstDayOfWeek="1">
             <ScheduleViews>
                 <ScheduleView Option="View.Day" Interval="@_periodDays" />
             </ScheduleViews>

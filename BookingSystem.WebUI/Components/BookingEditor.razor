@@ -528,7 +528,7 @@
     private static string[] BuildTimeGrid()
     {
         var list = new List<string>();
-        for (var h = 0; h < 24; h++)
+        for (var h = 10; h < 24; h++)
             for (var m = 0; m < 60; m += 15)
                 list.Add($"{h:00}:{m:00}");
         return list.ToArray();
