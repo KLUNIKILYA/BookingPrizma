@@ -13,7 +13,7 @@
 
             <div class="bk-drawer__body">
                 <aside class="bk-cat">
-                    <div class="bk-cat__label">Услуги</div>
+                    @* <div class="bk-cat__label">Услуги</div>
                     <button type="button" class="bk-cat__item @(_cat == "all-services" ? "is-active" : "")"
                             @onclick='() => SelectCat("all-services")'>
                         <span>Все услуги</span><span class="bk-cat__num">@_services.Count</span>
@@ -26,7 +26,7 @@
                                 @onclick="() => SelectCat(key)">
                             <span>@g.Name</span><span class="bk-cat__num">@cnt</span>
                         </button>
-                    }
+                    } *@
                     <div class="bk-cat__label">Билеты</div>
                     <button type="button" class="bk-cat__item @(_cat == "all-tickets" ? "is-active" : "")"
                             @onclick='() => SelectCat("all-tickets")'>
@@ -109,7 +109,7 @@
 
     private bool _open;
     private string _search = "";
-    private string _cat = "all-services";
+    private string _cat = "all-tickets";
     private List<ServiceDto> _services = new();
     private List<TicketFolderDto> _folders = new();
     private readonly List<OrderLine> _cart = new();
@@ -126,7 +126,7 @@
                 Quantity = Math.Max(1, s.Quantity), IsDone = s.IsDone, IsTicket = s.IsTicket
             });
         _search = "";
-        _cat = "all-services";
+        _cat = "all-tickets";
         if (_services.Count == 0) _services = await Api.GetServicesAsync(null);
         if (_folders.Count == 0) _folders = await Api.GetTicketFoldersAsync();
         _open = true;

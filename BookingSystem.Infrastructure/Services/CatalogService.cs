@@ -93,8 +93,8 @@ public class CatalogService : ICatalogService
         foreach (var f in folders.OrderBy(f => f.Name, ruOrder))
             if (byFolder.TryGetValue(f.Id, out var tk) && tk.Count > 0)
                 result.Add(new TicketFolderDto { Id = f.Id, Name = f.Name, Tickets = tk });
-        if (byFolder.TryGetValue(0, out var orphans) && orphans.Count > 0)
-            result.Add(new TicketFolderDto { Id = 0, Name = "Без раздела", Tickets = orphans });
+        //if (byFolder.TryGetValue(0, out var orphans) && orphans.Count > 0)
+        //    result.Add(new TicketFolderDto { Id = 0, Name = "Без раздела", Tickets = orphans });
         return result;
     }
 }
