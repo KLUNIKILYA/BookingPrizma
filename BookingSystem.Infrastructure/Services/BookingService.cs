@@ -405,25 +405,25 @@ public class BookingService : IBookingService
         extra.TariffName = null;
         extra.TariffPrice = null;
 
-        var minutes = (int)Math.Round((to - from).TotalMinutes);
-        if (minutes <= 0) return;
+        //var minutes = (int)Math.Round((to - from).TotalMinutes);
+        //if (minutes <= 0) return;
 
-        var tariffs = await (from tz in _db.TicketZones.AsNoTracking()
-                             join t in _db.Tickets.AsNoTracking() on tz.IdTicket equals t.IdTicket
-                             where tz.IdZone == zoneId && tz.Reservation && t.Active
-                             select new { t.IdTicket, t.NameTicket, t.TotalPrice, tz.ReservationTime })
-                            .ToListAsync(ct);
-        if (tariffs.Count == 0) return;
+        //var tariffs = await (from tz in _db.TicketZones.AsNoTracking()
+        //                     join t in _db.Tickets.AsNoTracking() on tz.IdTicket equals t.IdTicket
+        //                     where tz.IdZone == zoneId && tz.Reservation && t.Active
+        //                     select new { t.IdTicket, t.NameTicket, t.TotalPrice, tz.ReservationTime })
+        //                    .ToListAsync(ct);
+        //if (tariffs.Count == 0) return;
 
-        var chosen = tariffs
-            .Where(x => x.ReservationTime >= minutes)
-            .OrderBy(x => x.ReservationTime).ThenBy(x => x.TotalPrice)
-            .FirstOrDefault()
-            ?? tariffs.OrderByDescending(x => x.ReservationTime).ThenBy(x => x.TotalPrice).First();
+        //var chosen = tariffs
+        //    .Where(x => x.ReservationTime >= minutes)
+        //    .OrderBy(x => x.ReservationTime).ThenBy(x => x.TotalPrice)
+        //    .FirstOrDefault()
+        //    ?? tariffs.OrderByDescending(x => x.ReservationTime).ThenBy(x => x.TotalPrice).First();
 
-        extra.TariffTicketId = chosen.IdTicket;
-        extra.TariffName = chosen.NameTicket;
-        extra.TariffPrice = chosen.TotalPrice;
+        //extra.TariffTicketId = chosen.IdTicket;
+        //extra.TariffName = chosen.NameTicket;
+        //extra.TariffPrice = chosen.TotalPrice;
     }
 
     public async Task<BookingEventDto?> GetByIdAsync(int id, CancellationToken ct = default)

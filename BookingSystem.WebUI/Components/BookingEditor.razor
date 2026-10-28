@@ -296,7 +296,7 @@
 
                     <div class="bk-sums">
                         <span>Длительность: <b>@DurationText</b></span>
-                        <span>Аренда: <b>@TariffSum.ToString("0.##")</b></span>
+                        @* <span>Аренда: <b>@TariffSum.ToString("0.##")</b></span> *@
                         <span>Итого: <b>@TotalPrice.ToString("0.##")</b></span>
                     </div>
                     @if (_isPrepaid)
@@ -348,6 +348,7 @@
     [Parameter] public List<ClientDto> Waiters { get; set; } = new();
     [Parameter] public List<LabelDto> Labels { get; set; } = new();
     [Parameter] public List<PrepaymentTypeDto> PrepaymentTypes { get; set; } = new();
+    [Parameter] public List<ZoneTypeDto> ZoneTypes { get; set; } = new();
 
     [Parameter] public EventCallback OnChanged { get; set; }
 
@@ -467,10 +468,28 @@
     private BusySlotDto? RoomBusy(int id) => _busyRooms.GetValueOrDefault(id);
     private BusySlotDto? WaiterBusy(int id) => _busyWaiters.GetValueOrDefault(id);
 
-    private IEnumerable<IGrouping<string, ResourceDto>> ResourcesByType =>
-        Resources
-            .OrderBy(r => r.ZoneTypeId ?? int.MaxValue).ThenBy(r => r.SortOrder).ThenBy(r => r.DisplayName)
-            .GroupBy(r => string.IsNullOrWhiteSpace(r.ZoneTypeName) ? "Без типа" : r.ZoneTypeName!);
+    // private IEnumerable<IGrouping<string, ResourceDto>> ResourcesByType =>
+    //     Resources
+    //         .OrderBy(r => r.ZoneTypeId ?? int.MaxValue).ThenBy(r => r.SortOrder).ThenBy(r => r.DisplayName)
+    //         .GroupBy(r => string.IsNullOrWhiteSpace(r.ZoneTypeName) ? "Без типа" : r.ZoneTypeName!);
+
+    private IEnumerable<IGrouping<string, ResourceDto>> ResourcesByType
+    {
+        get
+        {
+            var activeTypes = ZoneTypes
+                .Where(t => t.Active)
+                .ToDictionary(t => t.Id, t => t.Name);
+
+            return Resources
+                .Where(r => r.ZoneTypeId is int id
+                            && activeTypes.ContainsKey(id))   
+                .OrderBy(r => r.ZoneTypeId ?? int.MaxValue)
+                .ThenBy(r => r.SortOrder)
+                .ThenBy(r => r.DisplayName)
+                .GroupBy(r => activeTypes[r.ZoneTypeId!.Value]);  
+        }
+    }
 
     private static string TypeKeyOf(ResourceDto r) => string.IsNullOrWhiteSpace(r.ZoneTypeName) ? "Без типа" : r.ZoneTypeName!;
 
@@ -510,7 +529,7 @@
             return sum;
         }
     }
-    private decimal TotalPrice => _selected.Sum(s => s.Price * Math.Max(1, s.Quantity)) + TariffSum;
+    private decimal TotalPrice => _selected.Sum(s => s.Price * Math.Max(1, s.Quantity)); // + TariffSum;
 
     private decimal DueAmount => Math.Max(0m, TotalPrice - (_isPrepaid ? _prepaidAmount : 0m));
 
