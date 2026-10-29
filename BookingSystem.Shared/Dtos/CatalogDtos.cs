@@ -43,6 +43,7 @@ public class ResourceDto
     public string DisplayName { get; set; } = string.Empty;
     public string? Color { get; set; }
     public int SortOrder { get; set; }
+    public bool AllowOverlap { get; set; }
 
     public int? ZoneTypeId { get; set; }
     public string? ZoneTypeName { get; set; }

@@ -233,6 +233,9 @@ namespace BookingSystem.Infrastructure.Migrations
                     b.Property<bool>("Active")
                         .HasColumnType("bit");
 
+                    b.Property<bool?>("AllowOverlap")
+                        .HasColumnType("bit");
+
                     b.Property<string>("NameZone")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");

@@ -5,5 +5,6 @@ public class Zone
     public int IdZone { get; set; }
     public string NameZone { get; set; } = null!;
     public string? ShortNameZone { get; set; }
+    public bool? AllowOverlap { get; set; }
     public bool Active { get; set; }
 }

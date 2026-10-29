@@ -420,3 +420,7 @@ html, body {
     text-overflow: ellipsis;
 }
 
+.e-schedule .bk-col-wide {
+    width: 300px;
+    min-width: 300px;
+}

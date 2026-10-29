@@ -29,4 +29,5 @@ public class SchedulerResource
     public int Id { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string Color { get; set; } = "#4F86C6";
+    public bool AllowOverlap { get; set; }
 }

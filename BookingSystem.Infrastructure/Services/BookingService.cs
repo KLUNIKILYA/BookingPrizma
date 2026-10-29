@@ -212,13 +212,59 @@ public class BookingService : IBookingService
         return await GetByIdAsync(id, ct);
     }
 
+    //public async Task<List<BookingConflictDto>> CheckConflictsAsync(
+    //    int? excludeId, IReadOnlyCollection<int> resourceIds, DateTime from, DateTime to, CancellationToken ct = default)
+    //{
+    //    if (resourceIds is null || resourceIds.Count == 0 || to <= from)
+    //        return new List<BookingConflictDto>();
+
+    //    var ids = resourceIds.Where(i => i > 0).Distinct().ToList();
+    //    if (ids.Count == 0) return new List<BookingConflictDto>();
+
+    //    var q = _db.ZoneReservations.AsNoTracking()
+    //        .Where(r => ids.Contains(r.ZoneId) && r.DateFrom < to && r.DateTo > from)
+    //        .Where(r => !_db.ResExtras.Any(e => e.ReservationId == r.Id && e.IsCancelled));
+    //    if (excludeId.HasValue)
+    //        q = q.Where(r => r.Id != excludeId.Value);
+
+    //    var rows = await q.ToListAsync(ct);
+    //    if (rows.Count == 0) return new List<BookingConflictDto>();
+
+    //    var roomNames = await _db.Zones.AsNoTracking()
+    //        .Where(z => ids.Contains(z.IdZone))
+    //        .ToDictionaryAsync(z => z.IdZone, z => z.NameZone, ct);
+
+    //    var resIds = rows.Select(r => r.Id).ToList();
+    //    var titles = await _db.ResExtras.AsNoTracking()
+    //        .Where(e => resIds.Contains(e.ReservationId))
+    //        .ToDictionaryAsync(e => e.ReservationId, e => e.Title, ct);
+
+    //    return rows.Select(r => new BookingConflictDto
+    //    {
+    //        ResourceId = r.ZoneId,
+    //        ResourceName = roomNames.GetValueOrDefault(r.ZoneId, ""),
+    //        ExistingId = r.Id,
+    //        TimeFrom = r.DateFrom,
+    //        TimeTo = r.DateTo,
+    //        Title = titles.GetValueOrDefault(r.Id) ?? (r.OrderId != null ? $"Касса #{r.OrderId}" : null)
+    //    }).ToList();
+    //}
+
     public async Task<List<BookingConflictDto>> CheckConflictsAsync(
-        int? excludeId, IReadOnlyCollection<int> resourceIds, DateTime from, DateTime to, CancellationToken ct = default)
+    int? excludeId, IReadOnlyCollection<int> resourceIds, DateTime from, DateTime to, CancellationToken ct = default)
     {
         if (resourceIds is null || resourceIds.Count == 0 || to <= from)
             return new List<BookingConflictDto>();
 
         var ids = resourceIds.Where(i => i > 0).Distinct().ToList();
+        if (ids.Count == 0) return new List<BookingConflictDto>();
+
+        var allowOverlapIds = await _db.Zones.AsNoTracking()
+            .Where(z => ids.Contains(z.IdZone) && z.AllowOverlap == true)
+            .Select(z => z.IdZone)
+            .ToListAsync(ct);
+
+        ids = ids.Except(allowOverlapIds).ToList();
         if (ids.Count == 0) return new List<BookingConflictDto>();
 
         var q = _db.ZoneReservations.AsNoTracking()
@@ -250,15 +296,96 @@ public class BookingService : IBookingService
         }).ToList();
     }
 
+    //public async Task<AvailabilityDto> GetAvailabilityAsync(
+    //    DateTime from, DateTime to, int? excludeId, CancellationToken ct = default)
+    //{
+    //    var result = new AvailabilityDto();
+    //    if (to <= from) return result;
+
+    //    var q = _db.ZoneReservations.AsNoTracking()
+    //        .Where(r => r.DateFrom < to && r.DateTo > from)
+    //        .Where(r => !_db.ResExtras.Any(e => e.ReservationId == r.Id && e.IsCancelled));
+    //    if (excludeId.HasValue) q = q.Where(r => r.Id != excludeId.Value);
+
+    //    var rows = await q.ToListAsync(ct);
+    //    if (rows.Count == 0) return result;
+
+    //    var roomIds = rows.Select(r => r.ZoneId).Distinct().ToList();
+    //    var roomNames = await _db.Zones.AsNoTracking()
+    //        .Where(z => roomIds.Contains(z.IdZone))
+    //        .ToDictionaryAsync(z => z.IdZone, z => z.NameZone, ct);
+
+    //    var resIds = rows.Select(r => r.Id).ToList();
+    //    var extras = await _db.ResExtras.AsNoTracking()
+    //        .Where(e => resIds.Contains(e.ReservationId))
+    //        .ToDictionaryAsync(e => e.ReservationId, ct);
+
+    //    var clientIds = extras.Values.Where(e => e.ClientVisitorId.HasValue)
+    //        .Select(e => e.ClientVisitorId!.Value).Distinct().ToList();
+    //    var clientNames = clientIds.Count == 0
+    //        ? new Dictionary<int, string>()
+    //        : await _db.CashboxVisitors.AsNoTracking().Where(v => clientIds.Contains(v.IdVisitor))
+    //            .ToDictionaryAsync(v => v.IdVisitor, v => (v.Surname + " " + v.Name).Trim(), ct);
+
+    //    var waiterIds = extras.Values.Where(e => e.WaiterLoginId.HasValue)
+    //        .Select(e => e.WaiterLoginId!.Value).Distinct().ToList();
+    //    var waiterNames = waiterIds.Count == 0
+    //        ? new Dictionary<int, string>()
+    //        : await _db.TLogins.AsNoTracking().Where(t => waiterIds.Contains(t.Fid))
+    //            .ToDictionaryAsync(t => t.Fid, t => t.Fuser ?? "", ct);
+
+    //    string? TitleOf(ZoneReservation r)
+    //    {
+    //        var ex = extras.GetValueOrDefault(r.Id);
+    //        if (ex?.ClientVisitorId is int cid && clientNames.TryGetValue(cid, out var cn) && !string.IsNullOrWhiteSpace(cn))
+    //            return cn;
+    //        if (!string.IsNullOrWhiteSpace(ex?.Title)) return ex!.Title;
+    //        return r.OrderId != null ? $"Касса #{r.OrderId}" : null;
+    //    }
+
+    //    foreach (var r in rows)
+    //    {
+    //        result.Rooms.Add(new BusySlotDto
+    //        {
+    //            Id = r.ZoneId,
+    //            Name = roomNames.GetValueOrDefault(r.ZoneId, ""),
+    //            TimeFrom = r.DateFrom,
+    //            TimeTo = r.DateTo,
+    //            Title = TitleOf(r)
+    //        });
+
+    //        if (extras.GetValueOrDefault(r.Id)?.WaiterLoginId is int wid)
+    //            result.Waiters.Add(new BusySlotDto
+    //            {
+    //                Id = wid,
+    //                Name = waiterNames.GetValueOrDefault(wid, ""),
+    //                TimeFrom = r.DateFrom,
+    //                TimeTo = r.DateTo,
+    //                Title = TitleOf(r)
+    //            });
+    //    }
+
+    //    return result;
+    //}
+
+
     public async Task<AvailabilityDto> GetAvailabilityAsync(
-        DateTime from, DateTime to, int? excludeId, CancellationToken ct = default)
+    DateTime from, DateTime to, int? excludeId, CancellationToken ct = default)
     {
         var result = new AvailabilityDto();
         if (to <= from) return result;
 
+        // зоны, которые разрешают пересечение (общий стол) — не считаем занятыми
+        var allowOverlapIds = await _db.Zones.AsNoTracking()
+            .Where(z => z.AllowOverlap == true)
+            .Select(z => z.IdZone)
+            .ToListAsync(ct);
+
         var q = _db.ZoneReservations.AsNoTracking()
             .Where(r => r.DateFrom < to && r.DateTo > from)
-            .Where(r => !_db.ResExtras.Any(e => e.ReservationId == r.Id && e.IsCancelled));
+            .Where(r => !_db.ResExtras.Any(e => e.ReservationId == r.Id && e.IsCancelled))
+            .Where(r => !allowOverlapIds.Contains(r.ZoneId));          // ← ДОБАВЛЕНО
+
         if (excludeId.HasValue) q = q.Where(r => r.Id != excludeId.Value);
 
         var rows = await q.ToListAsync(ct);

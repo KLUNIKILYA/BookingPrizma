@@ -16,7 +16,7 @@ public class ResourceService : IResourceService
         var zones = await _db.Zones.AsNoTracking()
             .Where(z => z.Active && !NonRoomZones.Contains(z.NameZone))
             .OrderBy(z => z.IdZone)
-            .Select(z => new { z.IdZone, z.NameZone })
+            .Select(z => new { z.IdZone, z.NameZone, z.AllowOverlap })
             .ToListAsync(ct);
 
         var assignments = await (from a in _db.ZoneAssignments.AsNoTracking()
@@ -34,7 +34,8 @@ public class ResourceService : IResourceService
                 DisplayName = z.NameZone,
                 SortOrder = a?.SortOrder ?? z.IdZone,
                 ZoneTypeId = a?.ZoneTypeId,
-                ZoneTypeName = a?.TypeName
+                ZoneTypeName = a?.TypeName,
+                AllowOverlap = z.AllowOverlap ?? false,
             };
         }).ToList();
     }

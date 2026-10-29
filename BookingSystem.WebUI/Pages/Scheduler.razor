@@ -189,6 +189,7 @@
         }
     }
 
+
     private List<ZoneTypeDto> _zoneTypes = new();
     private int _selectedTypeId;
     private int _singleZoneId;
@@ -249,7 +250,8 @@
             {
                 Id = r.Id,
                 DisplayName = r.DisplayName,
-                Color = r.Color ?? RoomPalette[i % RoomPalette.Length]
+                Color = r.Color ?? RoomPalette[i % RoomPalette.Length],
+                AllowOverlap = r.AllowOverlap
             })
             .ToList();
         _selectedTypeId = _zoneTypes.FirstOrDefault()?.Id ?? 0;
@@ -491,6 +493,7 @@
             await JS.InvokeVoidAsync("bkSetupDateClick", _selfRef);
             await JS.InvokeVoidAsync("bkSetupResourceClick", _selfRef);
 
+
             await JS.InvokeVoidAsync("bkObserveResize", "#bkSchedulerWrap", _selfRef);
             var w = await JS.InvokeAsync<int>("bkGetElementWidth", "#bkSchedulerWrap");
             if (w > 0)
@@ -507,6 +510,7 @@
             await JS.InvokeVoidAsync("bkSetGridSelEnabled", enable);
         }
     }
+
 
     [JSInvokable]
     public async Task OpenDay(double epochMs)
